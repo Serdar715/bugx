@@ -1,158 +1,93 @@
-<div align="center">
-   <a href="https://github.com/coffinxp/loxs"><img src="https://github.com/user-attachments/assets/9fadee1e-a33c-46e3-9eca-c04aa47a443e" hight="225" width="450" align="center"/></a>
-</div>
+# Loxs - Advanced Web Security Scanner
 
-<br>
-<br>
-<br>
+![Go Version](https://img.shields.io/badge/go-%3E%3D1.19-00ADD8.svg?style=flat-square)
+![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)
+![Platform](https://img.shields.io/badge/platform-windows%20%7C%20linux%20%7C%20macos-lightgrey.svg?style=flat-square)
 
-<div align="center">
-   
-|Loxs|Multi Vulnerability Scanner|for web application|
-|----------------|--------------|-------------|
-| `L`| `=`| `Local File Inclusion (LFI)`|
-| `O`| `=`| `Open Redirection (OR)`|
-| `X`| `=`| `Cross Site Scripting (XSS)`|
-| `S`| `=`| `Structured Query Language Injection (SQLi)`|
-|    |    | `Carriage Return Line Feed Injection (CRLF)`|
+**Loxs** is a high-performance, professional-grade web vulnerability scanner written in Go. It is designed to identify critical security flaws such as SQL Injection (SQLi), Cross-Site Scripting (XSS), Local File Inclusion (LFI), Open Redirects, and CRLF Injection with high accuracy and minimal false positives.
 
-> **Loxs** is an easy-to-use tool that finds web issues like `LFI` - `OR` - `SQLi` - `XSS` - `CRLF`. <br><br> *`Made by`* - [`AnonKryptiQuz`](https://github.com/AnonKryptiQuz) x [`Coffinxp`](https://github.com/coffinxp) x [`HexShad0w`](https://github.com/HexShad0w) x [`Naho`](https://github.com/Naho666) x [`1hehaq`](https://github.com/1hehaq) x [`Hghost010`](https://github.com/Hghost0x00)!
+Unlike traditional scanners, **Loxs** employs **Smart Connection Analysis** and **Heuristic Detection Algorithms** to adapt to the target server's response time and stability, ensuring reliable detection of Blind inconsistencies.
 
-</div>
+## 🚀 Features
 
-<hr>
+### 🧠 Smart Intelligence
+-   **Connection Stability Analysis:** Automatically measures server jitter and average response time before scanning.
+-   **Dynamic Thresholds:** Adjusts time-based attack thresholds dynamically based on server latency (e.g., if a server takes 5s to respond, the sleep payload threshold automatically adapts).
+-   **Context-Aware XSS:** Detects if payloads are reflected raw or properly escaped, reducing false positives.
 
-<br>
-<br>
-<br>
+### 🔥 supported Vulnerabilities
+-   **SQL Injection (SQLi):**
+    -   Error-Based (30+ patterns for MySQL, PostgreSQL, MSSQL, Oracle, SQLite).
+    -   Time-Based Blind (Heuristic detection with dynamic timeouts).
+    -   Boolean-Based Blind (Differential analysis).
+-   **Cross-Site Scripting (XSS):**
+    -   Reflected XSS detection.
+    -   Polyglot payload support.
+    -   Context-specific escaping analysis.
+-   **Local File Inclusion (LFI):**
+    -   Dual OS Support (Linux `/etc/passwd` & Windows `win.ini`).
+    -   PHP Wrapper Detection (`php://filter`, `php://input`).
+    -   Null Byte Injection & Path Truncation checks.
+-   **Open Redirect (OR):**
+    -   Header-based location checks.
+-   **CRLF Injection:**
+    -   HTTP Response Splitting & Header Injection detection.
 
+### ⚡ Performance
+-   **Multi-Threaded:** Concurrent scanning with configurable thread counts.
+-   **Go Routine Architecture:** Ultra-fast request handling compared to Python-based predecessors.
+-   **Low Memory Footprint:** Efficient resource management.
 
-| Features                          | About                                                                       |
-|-----------------------------------|-----------------------------------------------------------------------------|
-| `LFI Scanner`                     | Detect Local File Inclusion vulnerabilities.                                |
-| `OR Scanner`                      | Identify Open Redirect vulnerabilities.                                     |
-| `SQL Scanner`                     | Detect SQL Injection vulnerabilities.                                       |
-| `XSS Scanner`                     | Identify Cross-Site Scripting vulnerabilities.                              |
-| `CRLF Scanner`                    | Detect Carriage Return Line Feed Injection vulnerabilities.                 |
-| `Multi-threaded Scanning`         | Improved performance through multi-threading.                               |
-| `Customizable Payloads`           | Adjust payloads to suit specific targets.                                   |
-| `Success Criteria`                | Modify success detection criteria for specific use cases.                   |
-| `User-friendly CLI`               | Simple and intuitive command-line interface.                                |
-| `Save Vulnerable URLs`            | Option to save vulnerable URLs to a file for future reference.              |
-| `HTML Report Generation`          | Generates a detailed HTML report of found vulnerabilities.                  |
-<!-- | `Share HTML Report via Telegram`  | Share HTML vulnerability reports directly through Telegram.                 | -->
+## 📦 Installation
 
-<br>
-<hr>
-<br>
-<br>
-
-| Language                          | Packages                                                                    |
-|-----------------------------------|-----------------------------------------------------------------------------|
-| ***Python***| `Python 3.x` `webdriver_manager` `selenium` `aiohttp` `beautifulsoup4` `colorama` `rich` `requests` `gitpython` `prompt_toolkit` `pyyaml` `Flask`|
-
-<br>
-<hr>
-<br>
-
-## Installation
-
-### Clone the repository
-
+### From Source
 ```bash
-git clone https://github.com/coffinxp/loxs.git
-```
-```bash
-cd loxs
+# Clone the repository
+git clone https://github.com/coffinxp/bugx.git
+cd bugx
+
+# Install dependencies
+go mod tidy
+
+# Build the binary
+go build -o loxs cmd/loxs/main.go
+
+# Run
+./loxs
 ```
 
-### Install the requirements
+## 🛠 Usage
+
+Loxs requires two user-provided files:
+1.  **URL List:** A text file containing target URLs (one per line).
+2.  **Payload List:** A text file containing attack payloads (one per line).
 
 ```bash
-pip3 install -r requirements.txt
-```
-### Run the Script
-
-```bash
-python3 loxs.py
-```
-<!-- to update the tool to the latest version
-```bash
-just edit the config.yml file with your tool directory
-after pressing 5 and exiting from the tool run the tool again it will run with an updated version
-``` -->
-
-----
-
-| Input Information         |                                                                                         |
-|---------------------------|-----------------------------------------------------------------------------------------|
-| Input URL/File            | Provide a single URL or an input file containing multiple URLs for scanning.            |
-| Payload File              | Select or provide a custom payload file for the specific type of vulnerability scanning.|
-| Success Criteria          | Define patterns or strings indicating a successful exploitation attempt.                |
-| Concurrent Threads        | Set the number of threads for multi-threaded scanning.                                  |
-| View and Save Results     | Display results in real-time during the scan, and save vulnerable URLs for future use.  |
-
-----
-
-| Customization              |                                                                                          |
-|----------------------------|------------------------------------------------------------------------------------------|
-| Custom Payloads            | Modify or create payload files for different vulnerability types to target specific apps.|
-| Success Criteria           | Adjust the tool's success patterns to more accurately detect successful exploitations.   |
-| Concurrent Threads         | Control the number of threads used during the scan for performance optimization.         |
-
-
-----
-
-### Chrome Installation
-
-```bash
-wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+./loxs
 ```
 
-```bash
-sudo dpkg -i google-chrome-stable_current_amd64.deb
+Follow the interactive menu:
+1.  Select the vulnerability type (e.g., SQLi, XSS).
+2.  Enter the path to your **URL list** (e.g., `urls.txt`).
+3.  Enter the path to your **Payload list** (e.g., `payloads.txt`).
+4.  Set the number of threads (Default: 5).
+
+### Example Output
+```text
+[i] Starting Advanced SQLi Scan (Error, Boolean, Time, Union)...
+[*] Analysing http://testphp.vulnweb.com - Stability: 0.23s (Avg), Threshold: 5.23s
+[✓] Vulnerable: http://testphp.vulnweb.com/artists.php?artist=1' - Error-based SQLi (MySQL)
+[✓] Vulnerable: http://testphp.vulnweb.com/test?id=1' + SLEEP(10) -- - Time-based SQLi (Response: 10.05s)
 ```
 
-- If you encounter any errors during installation, use the following command:
+## 📊 Reporting
+Loxs automatically generates a clean, styled **HTML Report** containing:
+-   Scan summary (Duration, Total Scanned, Vulnerabilities Found).
+-   List of vulnerable URLs with specific details.
+-   Clickable links for verification.
 
-```bash
-sudo apt -f install
-```
+## ⚠️ Disclaimer
+This tool is developed for **educational purposes and authorized security testing only**. The usage of this tool on targets without prior mutual consent is illegal. The developers assume no liability and are not responsible for any misuse or damage caused by this program.
 
-```bash
-sudo dpkg -i google-chrome-stable_current_amd64.deb
-```
-
-----
-
-### Chrome Driver Installation
-
-```bash
-wget https://storage.googleapis.com/chrome-for-testing-public/128.0.6613.119/linux64/chromedriver-linux64.zip
-```
-```bash
-unzip chromedriver-linux64.zip
-```
-```bash
-cd chromedriver-linux64 
-```
-```bash
-sudo mv chromedriver /usr/bin
-```
-<hr>
-
-> [!WARNING]  
-> Loxs is intended for educational and ethical hacking purposes only. It should only be used to test systems you own or have explicit permission to test. Unauthorized use of third-party websites or systems without consent is illegal and unethical.
-
-<br>
-
-<p align="center">
-<img src="https://github.com/user-attachments/assets/9ec3fed0-45ff-4cb3-988c-f8cd66e85082">
-</p>
-
-
-<br>
-
-
-
-
+---
+*Created by Coffinxp | Ported & Enhanced by BugX*
