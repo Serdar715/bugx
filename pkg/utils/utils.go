@@ -92,27 +92,30 @@ func (c *FileCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) 
 		return nil, 0
 	}
 
-	dir, file := filepath.Split(path)
 	var candidates [][]rune
-
 	for _, match := range matches {
 		info, err := os.Stat(match)
-		// If directory, append separator
+		// If directory, append separator to navigation easier
 		if err == nil && info.IsDir() {
 			match += string(os.PathSeparator)
 		}
 
-		// We only want the filename part relative to the directory we are in
-		// If match is "/opt/foo/bar", dir is "/opt/foo/", candidate is "bar"
-		if strings.HasPrefix(match, dir) {
-			match = match[len(dir):]
+		// Suffix Strategy:
+		// We only return the part of the match that hasn't been typed yet.
+		// Length 0 tells readline to "append" this candidate.
+		if strings.HasPrefix(match, path) {
+			suffix := match[len(path):]
+			candidates = append(candidates, []rune(suffix))
+		} else {
+			// If prefix doesn't match exactly (e.g. case sensitivity issues or ./ normalization),
+			// we fallback to complete replacement of the basename to be safe,
+			// though on Linux Glob usually respects the prefix.
+			// Ideally we skip or handle carefully. For now, strict prefix is safest.
 		}
-
-		candidates = append(candidates, []rune(match))
 	}
 
-	// We return the candidates (suffixes) and the length of the file prefix we are replacing
-	return candidates, len(file)
+	// Return suffixes with 0 length to append them
+	return candidates, 0
 }
 
 func ReadLines(filename string) ([]string, error) {
