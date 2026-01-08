@@ -55,17 +55,20 @@ func ClearScreen() {
 
 func Prompt(text string) string {
 	// Setup generic readline config
-	// By default, chzyer/readline does basic file completion if no completer is set.
-	// But let's explicitly enable a file completer style for robustness.
-	// However, simple is better. A nil completer often defaults to file completion in this library or just basic input.
-	// Let's rely on standard handling but use the library to fix the Backspace/Arrow key issues plain 'fmt.Scan' has.
+	// Removing the restrictive AutoComplete checks allows users to type any path.
+	// While chzyer/readline doesn't always have "smart" file completion out of the box without config,
+	// the previous configuration was actively preventing using paths outside the current directory
+	// because it was hardcoded to `listFiles(".")`.
+	// By removing it, we at least stop breaking the input.
+	// For full file completion, we would need a complex recursive function,
+	// but for now, let's unlock the input.
 
 	rl, err := readline.NewEx(&readline.Config{
 		Prompt:          Cyan(text),
-		AutoComplete:    readline.NewPrefixCompleter(readline.PcItemDynamic(listFiles("."))), // Dynamic file completion
 		InterruptPrompt: "^C",
 		EOFPrompt:       "exit",
-		HistoryFile:     "", // No history file for privacy/cleanliness in this context
+		HistoryFile:     "",
+		// AutoComplete: nil, // Let's rely on default behavior or just raw input
 	})
 	if err != nil {
 		// Fallback
@@ -81,19 +84,6 @@ func Prompt(text string) string {
 		return ""
 	}
 	return strings.TrimSpace(line)
-}
-
-func listFiles(path string) func(string) []string {
-	return func(line string) []string {
-		// Basic file completer logic
-		// Returns list of files in current directory to help autocomplete
-		names := []string{}
-		files, _ := ioutil.ReadDir(".")
-		for _, f := range files {
-			names = append(names, f.Name())
-		}
-		return names
-	}
 }
 
 func ReadLines(filename string) ([]string, error) {
