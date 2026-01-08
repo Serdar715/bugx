@@ -88,15 +88,13 @@ func (c *FileCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) 
 
 	// Find matches
 	matches, err := filepath.Glob(path + "*")
-	if err != nil {
+	if err != nil || len(matches) == 0 {
 		return nil, 0
 	}
 
-	if len(matches) == 0 {
-		return nil, 0
-	}
-
+	dir, file := filepath.Split(path)
 	var candidates [][]rune
+
 	for _, match := range matches {
 		info, err := os.Stat(match)
 		// If directory, append separator
@@ -104,11 +102,17 @@ func (c *FileCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) 
 			match += string(os.PathSeparator)
 		}
 
+		// We only want the filename part relative to the directory we are in
+		// If match is "/opt/foo/bar", dir is "/opt/foo/", candidate is "bar"
+		if strings.HasPrefix(match, dir) {
+			match = match[len(dir):]
+		}
+
 		candidates = append(candidates, []rune(match))
 	}
 
-	// We return the candidates and the length of the input we are replacing
-	return candidates, len(path)
+	// We return the candidates (suffixes) and the length of the file prefix we are replacing
+	return candidates, len(file)
 }
 
 func ReadLines(filename string) ([]string, error) {
