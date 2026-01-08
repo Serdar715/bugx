@@ -2,6 +2,7 @@ package utils
 
 import (
 	"bufio"
+	"crypto/tls"
 	"fmt"
 	"io/ioutil"
 	"math/rand"
@@ -144,8 +145,16 @@ type RequestResponse struct {
 }
 
 func MakeRequest(url string, cookie string, timeout int) (RequestResponse, error) {
+	// Disable HTTP/2 by setting TLSNextProto to empty map
+	// Also skip SSL verification for scanning headers
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		TLSNextProto:    make(map[string]func(string, *tls.Conn) http.RoundTripper),
+	}
+
 	client := &http.Client{
-		Timeout: time.Duration(timeout) * time.Second,
+		Transport: tr,
+		Timeout:   time.Duration(timeout) * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
