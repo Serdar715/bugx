@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 )
@@ -135,7 +136,7 @@ func (s *LFIScanner) Scan(config ScanConfig) []ScanResult {
 		for _, lfiPayload := range payloadsToTest {
 			wg.Add(1)
 			sem <- struct{}{}
-			go func(url string, payload struct {
+			go func(u string, payload struct {
 				Payload      string
 				TargetFile   string
 				SignatureKey string
@@ -143,11 +144,57 @@ func (s *LFIScanner) Scan(config ScanConfig) []ScanResult {
 				defer wg.Done()
 				defer func() { <-sem }()
 
-				targetURL := url + payload.Payload
-				resp, err := utils.MakeRequest(targetURL, config.Cookie, config.Timeout)
-				if err != nil {
-					return
+				// Fuzzing Logic:
+				// If URL has parameters (e.g. ?file=image.jpg), we MUST replace the value (e.g. ?file=../../etc/passwd)
+				// instead of appending (which results in ?file=image.jpg../../etc/passwd -> Invalid).
+				// We also keep the 'append' strategy as a fallback for RESTful URLs or raw appends.
+
+				var targets []string
+				
+				// 1. Try Parameter Replacement (The Fix)
+				parsedURL, err := url.Parse(u)
+				if err == nil && len(parsedURL.Query()) > 0 {
+					// Manually modify RawQuery to preserve payload formatting (avoiding extra URL encoding of ../)
+					rawQuery := parsedURL.RawQuery
+					params := strings.Split(rawQuery, "&")
+					for i, param := range params {
+						// Split key=value
+						kv := strings.SplitN(param, "=", 2)
+						key := kv[0]
+						
+						// Construct new query: key=PAYLOAD
+						// We replace the logic to inject payload specifically into this parameter
+						newParams := make([]string, len(params))
+						copy(newParams, params)
+						newParams[i] = key + "=" + payload.Payload
+						
+						// Rebuild URL
+						fuzzedURL := *parsedURL
+						fuzzedURL.RawQuery = strings.Join(newParams, "&")
+						targets = append(targets, fuzzedURL.String())
+					}
 				}
+
+				// 2. Fallback / Original Strategy: Simple Append
+				// Useful for URLs like http://site.com/file= (empty) or manual fuzz points
+				targets = append(targets, u+payload.Payload)
+
+				// Deduplicate
+				uniqueTargets := make(map[string]bool)
+				var finalTargets []string
+				for _, t := range targets {
+					if !uniqueTargets[t] {
+						uniqueTargets[t] = true
+						finalTargets = append(finalTargets, t)
+					}
+				}
+
+				for _, targetURL := range finalTargets {
+					resp, err := utils.MakeRequest(targetURL, config.Cookie, config.Timeout)
+					if err != nil {
+						continue
+					}
+
 
 				// 1. Status Code Check: If we get a 200 OK while baseline (non-existent) was 404/500, that's interesting.
 				// But if baseline was 200 (soft 404), we rely on content difference.
