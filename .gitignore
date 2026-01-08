@@ -14,6 +14,7 @@ test_*.txt
 # IDE
 .idea/
 .vscode/
+.agent/
 *.swp
 *.swo
 
