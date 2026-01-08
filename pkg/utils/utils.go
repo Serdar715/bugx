@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"path/filepath"
+
 	"github.com/chzyer/readline"
 	"github.com/fatih/color"
 )
@@ -54,21 +56,13 @@ func ClearScreen() {
 }
 
 func Prompt(text string) string {
-	// Setup generic readline config
-	// Removing the restrictive AutoComplete checks allows users to type any path.
-	// While chzyer/readline doesn't always have "smart" file completion out of the box without config,
-	// the previous configuration was actively preventing using paths outside the current directory
-	// because it was hardcoded to `listFiles(".")`.
-	// By removing it, we at least stop breaking the input.
-	// For full file completion, we would need a complex recursive function,
-	// but for now, let's unlock the input.
-
+	// Proper readline config with file completion using filepath.Glob
 	rl, err := readline.NewEx(&readline.Config{
 		Prompt:          Cyan(text),
+		AutoComplete:    readline.NewPrefixCompleter(readline.PcItemDynamic(fileCompleter)),
 		InterruptPrompt: "^C",
 		EOFPrompt:       "exit",
 		HistoryFile:     "",
-		// AutoComplete: nil, // Let's rely on default behavior or just raw input
 	})
 	if err != nil {
 		// Fallback
@@ -84,6 +78,13 @@ func Prompt(text string) string {
 		return ""
 	}
 	return strings.TrimSpace(line)
+}
+
+func fileCompleter(line string) []string {
+	// Allow globbing for absolute and relative paths
+	// This lets /opt/p... become /opt/payloads/ etc.
+	matches, _ := filepath.Glob(line + "*")
+	return matches
 }
 
 func ReadLines(filename string) ([]string, error) {
