@@ -56,10 +56,10 @@ func ClearScreen() {
 }
 
 func Prompt(text string) string {
-	// Proper readline config with file completion using filepath.Glob
+	// Use custom FileCompleter to fix trailing space and navigation
 	rl, err := readline.NewEx(&readline.Config{
 		Prompt:          Cyan(text),
-		AutoComplete:    readline.NewPrefixCompleter(readline.PcItemDynamic(fileCompleter)),
+		AutoComplete:    &FileCompleter{},
 		InterruptPrompt: "^C",
 		EOFPrompt:       "exit",
 		HistoryFile:     "",
@@ -80,11 +80,35 @@ func Prompt(text string) string {
 	return strings.TrimSpace(line)
 }
 
-func fileCompleter(line string) []string {
-	// Allow globbing for absolute and relative paths
-	// This lets /opt/p... become /opt/payloads/ etc.
-	matches, _ := filepath.Glob(line + "*")
-	return matches
+// FileCompleter implements readline.AutoCompleter
+type FileCompleter struct{}
+
+func (c *FileCompleter) Do(line []rune, pos int) (newLine [][]rune, length int) {
+	path := string(line[:pos])
+
+	// Find matches
+	matches, err := filepath.Glob(path + "*")
+	if err != nil {
+		return nil, 0
+	}
+
+	if len(matches) == 0 {
+		return nil, 0
+	}
+
+	var candidates [][]rune
+	for _, match := range matches {
+		info, err := os.Stat(match)
+		// If directory, append separator
+		if err == nil && info.IsDir() {
+			match += string(os.PathSeparator)
+		}
+
+		candidates = append(candidates, []rune(match))
+	}
+
+	// We return the candidates and the length of the input we are replacing
+	return candidates, len(path)
 }
 
 func ReadLines(filename string) ([]string, error) {
