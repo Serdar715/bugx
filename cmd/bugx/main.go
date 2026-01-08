@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"time"
 )
@@ -121,6 +122,11 @@ func updateTool() {
 	fmt.Println(utils.Yellow("[*] Rebuilding the tool..."))
 
 	// 2. Rebuild
+	binaryName := "bugx"
+	if runtime.GOOS == "windows" {
+		binaryName = "bugx.exe"
+	}
+
 	// On Windows, we can't overwrite the running binary.
 	// We'll rename the current one first.
 	executable, err := os.Executable()
@@ -130,12 +136,12 @@ func updateTool() {
 		os.Rename(executable, oldExec)
 	}
 
-	buildCmd := exec.Command("go", "build", "-o", "bugx.exe", "cmd/bugx/main.go")
+	buildCmd := exec.Command("go", "build", "-o", binaryName, "cmd/bugx/main.go")
 	buildOutput, buildErr := buildCmd.CombinedOutput()
 
 	if buildErr != nil {
 		fmt.Println(utils.Red("[!] Rebuild failed: " + buildErr.Error()))
-		fmt.Println(utils.Red("[!] You may need to manually run: go build -o bugx.exe cmd/bugx/main.go"))
+		fmt.Println(utils.Red("[!] You may need to manually run: go build -o " + binaryName + " cmd/bugx/main.go"))
 		fmt.Println(utils.White(string(buildOutput)))
 
 		// If build failed, try to restore the old one (best effort)
