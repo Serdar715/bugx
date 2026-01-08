@@ -149,7 +149,7 @@ func verifyXSSWithDialogInterception(allocCtx context.Context, targetURL, canary
 	// Navigate and wait for potential dialog
 	err := chromedp.Run(ctx,
 		chromedp.Navigate(targetURL),
-		chromedp.Sleep(3*time.Second),
+		chromedp.Sleep(1*time.Second), // Reduced from 3s to 1s for speed
 	)
 
 	if err != nil && !strings.Contains(err.Error(), "context deadline") {

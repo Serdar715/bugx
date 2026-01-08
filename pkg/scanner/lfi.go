@@ -149,9 +149,27 @@ func (s *LFIScanner) Scan(config ScanConfig) []ScanResult {
 					return
 				}
 
-				// Check if response is different from baseline (not 404/error page)
-				if len(resp.Body) < 50 || len(resp.Body) == len(baseline.Body) {
-					return
+				// 1. Status Code Check: If we get a 200 OK while baseline (non-existent) was 404/500, that's interesting.
+				// But if baseline was 200 (soft 404), we rely on content difference.
+				statusCodeMatch := resp.StatusCode == baseline.StatusCode
+
+				// 2. Length/Content Check:
+				// If status codes match, we need significant content difference.
+				// If status codes differ (e.g. 404 vs 200), we proceed to signature check.
+				if statusCodeMatch {
+					// Use a simple ratio or just strict length diff if status matches
+					// If bodies are identical size, it's definitely not it.
+					if len(resp.Body) == len(baseline.Body) {
+						return
+					}
+					// If the difference is very small (less than 5 chars), likely just dynamic time/date
+					diff := len(resp.Body) - len(baseline.Body)
+					if diff < 0 {
+						diff = -diff
+					}
+					if diff < 5 {
+						return
+					}
 				}
 
 				// Verify with file signatures
