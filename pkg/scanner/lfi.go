@@ -113,7 +113,7 @@ func (s *LFIScanner) Scan(config ScanConfig) []ScanResult {
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, config.Threads)
 
-	fmt.Println(utils.Yellow("\n[i] Starting LFI Scan (LFISuite-style verification)..."))
+	fmt.Println(utils.Yellow("\n[i] Starting LFI Scan..."))
 	fmt.Println(utils.White("[*] Verifying by checking actual file content signatures"))
 	fmt.Println(utils.White("[*] Only CONFIRMED file inclusions will be reported\n"))
 

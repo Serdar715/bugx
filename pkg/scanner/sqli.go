@@ -98,7 +98,7 @@ func (s *SQLiScanner) Scan(config ScanConfig) []ScanResult {
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, config.Threads)
 
-	fmt.Println(utils.Yellow("\n[i] Starting SQLi Scan (sqlmap-style verification)..."))
+	fmt.Println(utils.Yellow("\n[i] Starting SQLi Scan..."))
 	fmt.Println(utils.White("[*] Methods: Error-based, Time-based (5s delay), Boolean-based"))
 	fmt.Println(utils.White("[*] Only CONFIRMED vulnerabilities will be reported\n"))
 

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/chzyer/readline"
 	"github.com/fatih/color"
 )
 
@@ -53,10 +54,46 @@ func ClearScreen() {
 }
 
 func Prompt(text string) string {
-	fmt.Print(Cyan(text))
-	reader := bufio.NewReader(os.Stdin)
-	input, _ := reader.ReadString('\n')
-	return strings.TrimSpace(input)
+	// Setup generic readline config
+	// By default, chzyer/readline does basic file completion if no completer is set.
+	// But let's explicitly enable a file completer style for robustness.
+	// However, simple is better. A nil completer often defaults to file completion in this library or just basic input.
+	// Let's rely on standard handling but use the library to fix the Backspace/Arrow key issues plain 'fmt.Scan' has.
+
+	rl, err := readline.NewEx(&readline.Config{
+		Prompt:          Cyan(text),
+		AutoComplete:    readline.NewPrefixCompleter(readline.PcItemDynamic(listFiles("."))), // Dynamic file completion
+		InterruptPrompt: "^C",
+		EOFPrompt:       "exit",
+		HistoryFile:     "", // No history file for privacy/cleanliness in this context
+	})
+	if err != nil {
+		// Fallback
+		fmt.Print(Cyan(text))
+		reader := bufio.NewReader(os.Stdin)
+		input, _ := reader.ReadString('\n')
+		return strings.TrimSpace(input)
+	}
+	defer rl.Close()
+
+	line, err := rl.Readline()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(line)
+}
+
+func listFiles(path string) func(string) []string {
+	return func(line string) []string {
+		// Basic file completer logic
+		// Returns list of files in current directory to help autocomplete
+		names := []string{}
+		files, _ := ioutil.ReadDir(".")
+		for _, f := range files {
+			names = append(names, f.Name())
+		}
+		return names
+	}
 }
 
 func ReadLines(filename string) ([]string, error) {
