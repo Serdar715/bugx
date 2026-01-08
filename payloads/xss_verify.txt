@@ -1,0 +1,10 @@
+<script>window.xss_CANARY_VAR='CANARY'</script>
+<img src=x onerror="window.xss_CANARY_VAR='CANARY'">
+<svg onload="window.xss_CANARY_VAR='CANARY'">
+"><script>window.xss_CANARY_VAR='CANARY'</script>
+'><script>window.xss_CANARY_VAR='CANARY'</script>
+<body onload="window.xss_CANARY_VAR='CANARY'">
+<img src=x onerror=alert(1)>
+<script>alert(1)</script>
+"><script>alert(1)</script>
+<svg/onload=alert(1)>

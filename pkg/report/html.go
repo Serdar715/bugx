@@ -1,9 +1,9 @@
 package report
 
 import (
+	"bugx/pkg/scanner"
+	"bugx/pkg/utils"
 	"fmt"
-	"loxs/pkg/scanner"
-	"loxs/pkg/utils"
 	"os"
 	"strings"
 	"time"
@@ -30,7 +30,7 @@ func GenerateHTMLReport(scanType string, results []scanner.ScanResult, duration 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Loxs Security Report</title>
+    <title>Bugx Security Report</title>
     <style>
         body { font-family: 'Courier New', monospace; background-color: #111; color: #eee; padding: 20px; }
         .container { max-width: 900px; margin: 0 auto; background: #222; padding: 20px; border-radius: 8px; border: 1px solid #444; }
@@ -44,7 +44,7 @@ func GenerateHTMLReport(scanType string, results []scanner.ScanResult, duration 
 </head>
 <body>
     <div class="container">
-        <h1>Loxs Security Scan Report</h1>
+        <h1>Bugx Security Scan Report</h1>
         <div class="summary">
             <p><strong>Scan Type:</strong> %s</p>
             <p><strong>Total Vulnerabilities:</strong> %d</p>

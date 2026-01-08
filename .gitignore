@@ -1,0 +1,35 @@
+# Binaries
+
+bugx.exe
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test files
+test_*.txt
+*.test
+*.out
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Debug
+*.log
+debug/
+
+# Temporary
+tmp/
+temp/
+*.tmp
+
+# Build
+dist/
+build/
