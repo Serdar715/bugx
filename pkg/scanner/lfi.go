@@ -189,7 +189,7 @@ func (s *LFIScanner) Scan(config ScanConfig) []ScanResult {
 				if matchedPatterns >= 2 {
 					fmt.Printf("%s %s\n",
 						utils.Red("[✓] LFI CONFIRMED:"),
-						utils.Cyan(truncateURL(targetURL, 90)))
+						utils.Cyan(targetURL))
 					fmt.Printf("    → File: %s (%s), Matched patterns: %d\n",
 						utils.Yellow(sig.File),
 						utils.White(sig.OS),
@@ -209,7 +209,7 @@ func (s *LFIScanner) Scan(config ScanConfig) []ScanResult {
 					if isBase64PHPSource(resp.Body) {
 						fmt.Printf("%s %s\n",
 							utils.Red("[✓] LFI CONFIRMED (PHP Source Disclosure):"),
-							utils.Cyan(truncateURL(targetURL, 90)))
+							utils.Cyan(targetURL))
 						fmt.Printf("    → Base64 encoded PHP source code detected\n")
 
 						processor.Add(ScanResult{
@@ -254,7 +254,7 @@ func (s *LFIScanner) Scan(config ScanConfig) []ScanResult {
 					if matchedPatterns >= 2 {
 						fmt.Printf("%s %s\n",
 							utils.Red("[✓] LFI CONFIRMED:"),
-							utils.Cyan(truncateURL(targetURL, 90)))
+							utils.Cyan(targetURL))
 						fmt.Printf("    → File: %s (%s), Matched patterns: %d\n",
 							utils.Yellow(sig.File),
 							utils.White(sig.OS),

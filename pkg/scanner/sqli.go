@@ -130,7 +130,7 @@ func (s *SQLiScanner) Scan(config ScanConfig) []ScanResult {
 							if !utils.RegexMatch(pattern, baseline.Body) {
 								fmt.Printf("%s %s\n",
 									utils.Red("[✓] SQLi CONFIRMED (Error-based):"),
-									utils.Cyan(truncateURL(targetURL, 90)))
+									utils.Cyan(targetURL))
 								fmt.Printf("    → Database: %s, Pattern matched: %s\n",
 									utils.Yellow(dbType),
 									utils.White(truncateURL(pattern, 50)))
@@ -194,7 +194,7 @@ func (s *SQLiScanner) Scan(config ScanConfig) []ScanResult {
 					if elapsed2-avgBaseline >= expectedMin {
 						fmt.Printf("%s %s\n",
 							utils.Red("[✓] SQLi CONFIRMED (Time-based):"),
-							utils.Cyan(truncateURL(targetURL, 90)))
+							utils.Cyan(targetURL))
 						fmt.Printf("    → Database: %s, Delay: %ss (baseline: %.2fs)\n",
 							utils.Yellow(tbPayload.DBType),
 							utils.White(fmt.Sprintf("%.2f", elapsed)),
@@ -235,7 +235,7 @@ func (s *SQLiScanner) Scan(config ScanConfig) []ScanResult {
 					if trueDiff < baseLen*0.1 {
 						fmt.Printf("%s %s\n",
 							utils.Red("[✓] SQLi CONFIRMED (Boolean-based):"),
-							utils.Cyan(truncateURL(trueURL, 90)))
+							utils.Cyan(trueURL))
 						fmt.Printf("    → True/False response diff: %.0f bytes\n", lenDiff)
 
 						processor.Add(ScanResult{

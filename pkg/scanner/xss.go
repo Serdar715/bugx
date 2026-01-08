@@ -100,7 +100,7 @@ func (s *XSSScanner) Scan(config ScanConfig) []ScanResult {
 				if confirmed {
 					fmt.Printf("%s %s\n",
 						utils.Red("[✓] XSS CONFIRMED:"),
-						utils.Cyan(truncateURL(targetURL, 100)))
+						utils.Cyan(targetURL))
 					fmt.Printf("    %s %s\n",
 						utils.Green("→"),
 						utils.White(details))
