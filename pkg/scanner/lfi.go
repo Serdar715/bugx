@@ -5,7 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"net/url"
+	nurl "net/url"
 	"strings"
 	"sync"
 )
@@ -150,9 +150,9 @@ func (s *LFIScanner) Scan(config ScanConfig) []ScanResult {
 				// We also keep the 'append' strategy as a fallback for RESTful URLs or raw appends.
 
 				var targets []string
-				
+
 				// 1. Try Parameter Replacement (The Fix)
-				parsedURL, err := url.Parse(u)
+				parsedURL, err := nurl.Parse(u)
 				if err == nil && len(parsedURL.Query()) > 0 {
 					// Manually modify RawQuery to preserve payload formatting (avoiding extra URL encoding of ../)
 					rawQuery := parsedURL.RawQuery
@@ -161,13 +161,13 @@ func (s *LFIScanner) Scan(config ScanConfig) []ScanResult {
 						// Split key=value
 						kv := strings.SplitN(param, "=", 2)
 						key := kv[0]
-						
+
 						// Construct new query: key=PAYLOAD
 						// We replace the logic to inject payload specifically into this parameter
 						newParams := make([]string, len(params))
 						copy(newParams, params)
 						newParams[i] = key + "=" + payload.Payload
-						
+
 						// Rebuild URL
 						fuzzedURL := *parsedURL
 						fuzzedURL.RawQuery = strings.Join(newParams, "&")
@@ -195,79 +195,79 @@ func (s *LFIScanner) Scan(config ScanConfig) []ScanResult {
 						continue
 					}
 
+					// 1. Status Code Check: If we get a 200 OK while baseline (non-existent) was 404/500, that's interesting.
+					// But if baseline was 200 (soft 404), we rely on content difference.
+					statusCodeMatch := resp.StatusCode == baseline.StatusCode
 
-				// 1. Status Code Check: If we get a 200 OK while baseline (non-existent) was 404/500, that's interesting.
-				// But if baseline was 200 (soft 404), we rely on content difference.
-				statusCodeMatch := resp.StatusCode == baseline.StatusCode
+					// 2. Length/Content Check:
+					// If status codes match, we need significant content difference.
+					// If status codes differ (e.g. 404 vs 200), we proceed to signature check.
+					if statusCodeMatch {
+						// Use a simple ratio or just strict length diff if status matches
+						// If bodies are identical size, it's definitely not it.
+						if len(resp.Body) == len(baseline.Body) {
+							return
+						}
+						// If the difference is very small (less than 5 chars), likely just dynamic time/date
+						diff := len(resp.Body) - len(baseline.Body)
+						if diff < 0 {
+							diff = -diff
+						}
+						if diff < 5 {
+							return
+						}
+					}
 
-				// 2. Length/Content Check:
-				// If status codes match, we need significant content difference.
-				// If status codes differ (e.g. 404 vs 200), we proceed to signature check.
-				if statusCodeMatch {
-					// Use a simple ratio or just strict length diff if status matches
-					// If bodies are identical size, it's definitely not it.
-					if len(resp.Body) == len(baseline.Body) {
+					// Verify with file signatures
+					sig, exists := fileSignatures[payload.SignatureKey]
+					if !exists {
 						return
 					}
-					// If the difference is very small (less than 5 chars), likely just dynamic time/date
-					diff := len(resp.Body) - len(baseline.Body)
-					if diff < 0 {
-						diff = -diff
+
+					matchedPatterns := 0
+					for _, pattern := range sig.Patterns {
+						if strings.Contains(resp.Body, pattern) {
+							matchedPatterns++
+						}
 					}
-					if diff < 5 {
-						return
-					}
-				}
 
-				// Verify with file signatures
-				sig, exists := fileSignatures[payload.SignatureKey]
-				if !exists {
-					return
-				}
-
-				matchedPatterns := 0
-				for _, pattern := range sig.Patterns {
-					if strings.Contains(resp.Body, pattern) {
-						matchedPatterns++
-					}
-				}
-
-				// Need at least 2 pattern matches for confirmation
-				if matchedPatterns >= 2 {
-					fmt.Printf("%s %s\n",
-						utils.Red("[✓] LFI CONFIRMED:"),
-						utils.Cyan(targetURL))
-					fmt.Printf("    → File: %s (%s), Matched patterns: %d\n",
-						utils.Yellow(sig.File),
-						utils.White(sig.OS),
-						matchedPatterns)
-
-					processor.Add(ScanResult{
-						URL:        targetURL,
-						Vulnerable: true,
-						Payload:    payload.Payload,
-						Details:    fmt.Sprintf("LFI - %s file included (%s)", sig.File, sig.OS),
-					})
-				}
-
-				// Special check for PHP base64 wrapper
-				if payload.SignatureKey == "php_source" {
-					// Check for base64 encoded PHP
-					if isBase64PHPSource(resp.Body) {
+					// Need at least 2 pattern matches for confirmation
+					if matchedPatterns >= 2 {
 						fmt.Printf("%s %s\n",
-							utils.Red("[✓] LFI CONFIRMED (PHP Source Disclosure):"),
+							utils.Red("[✓] LFI CONFIRMED:"),
 							utils.Cyan(targetURL))
-						fmt.Printf("    → Base64 encoded PHP source code detected\n")
+						fmt.Printf("    → File: %s (%s), Matched patterns: %d\n",
+							utils.Yellow(sig.File),
+							utils.White(sig.OS),
+							matchedPatterns)
 
 						processor.Add(ScanResult{
 							URL:        targetURL,
 							Vulnerable: true,
 							Payload:    payload.Payload,
-							Details:    "LFI - PHP source code disclosure via php://filter",
+							Details:    fmt.Sprintf("LFI - %s file included (%s)", sig.File, sig.OS),
 						})
 					}
-				}
 
+					// Special check for PHP base64 wrapper
+					if payload.SignatureKey == "php_source" {
+						// Check for base64 encoded PHP
+						if isBase64PHPSource(resp.Body) {
+							fmt.Printf("%s %s\n",
+								utils.Red("[✓] LFI CONFIRMED (PHP Source Disclosure):"),
+								utils.Cyan(targetURL))
+							fmt.Printf("    → Base64 encoded PHP source code detected\n")
+
+							processor.Add(ScanResult{
+								URL:        targetURL,
+								Vulnerable: true,
+								Payload:    payload.Payload,
+								Details:    "LFI - PHP source code disclosure via php://filter",
+							})
+						}
+					}
+
+				} // Close finalTargets loop
 			}(url, lfiPayload)
 		}
 
