@@ -288,14 +288,10 @@ BugX employs multiple layers of verification to ensure accurate results:
 
 ---
 
-## 📄 License
-
-This project is licensed under the **BSD 3-Clause License** - see the [LICENSE](LICENSE) file for details.
-
----
 
 <div align="center">
 
 **Made with ❤️ for the Security Community**
 
 </div>
+
