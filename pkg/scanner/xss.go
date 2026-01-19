@@ -24,21 +24,26 @@ func generateCanaryToken() string {
 }
 
 // XSS payloads designed to trigger JavaScript dialogs
+// STRICT: Only using payloads that auto-execute without user interaction
+// Each payload uses CANARY placeholder replaced with unique token
 var xssVerificationPayloads = []string{
-	`<script>alert('CANARY')</script>`,
-	`<img src=x onerror="alert('CANARY')">`,
-	`<svg onload="alert('CANARY')">`,
-	`"><script>alert('CANARY')</script>`,
-	`'><script>alert('CANARY')</script>`,
-	`<svg/onload=alert('CANARY')>`,
-	`<img src=x onerror=alert('CANARY')>`,
-	`" onmouseover="alert('CANARY')" style="position:fixed;top:0;left:0;width:100%;height:100%;" x="`,
-	`<body onload="alert('CANARY')">`,
-	`<iframe src="javascript:alert('CANARY')">`,
-	`<input onfocus="alert('CANARY')" autofocus>`,
-	`<marquee onstart="alert('CANARY')">`,
-	`<video><source onerror="alert('CANARY')">`,
-	`<details open ontoggle="alert('CANARY')">`,
+	// Auto-execute payloads (no user interaction required)
+	`<script>alert('CANARY')</script>`,            // Basic script tag
+	`<svg onload="alert('CANARY')">`,              // SVG onload (reliable)
+	`<img src=x onerror="alert('CANARY')">`,       // IMG onerror (very reliable)
+	`<body onload="alert('CANARY')">`,             // Body onload
+	`<input onfocus="alert('CANARY')" autofocus>`, // Autofocus trigger
+	`<video><source onerror="alert('CANARY')">`,   // Video source error
+	`<details open ontoggle="alert('CANARY')">`,   // Details toggle auto
+
+	// Context breakout payloads
+	`"><script>alert('CANARY')</script>`,        // Double quote breakout
+	`'><script>alert('CANARY')</script>`,        // Single quote breakout
+	`</script><script>alert('CANARY')</script>`, // Script tag breakout
+
+	// Attribute breakout with auto-execute
+	`" onfocus="alert('CANARY')" autofocus="`,   // Attribute injection
+	`' onfocus='alert(\"CANARY\")' autofocus='`, // Single quote attribute
 }
 
 func (s *XSSScanner) Scan(config ScanConfig) []ScanResult {
@@ -123,6 +128,8 @@ func (s *XSSScanner) Scan(config ScanConfig) []ScanResult {
 }
 
 // verifyXSSWithDialogInterception uses Chrome's dialog event to confirm XSS
+// STRICT MODE: Only confirms if our unique canary is in the dialog message
+// This prevents false positives from legitimate JavaScript alerts on the page
 func verifyXSSWithDialogInterception(allocCtx context.Context, targetURL, canary string, timeout int) (bool, string) {
 	ctx, cancel := chromedp.NewContext(allocCtx)
 	defer cancel()
@@ -132,6 +139,7 @@ func verifyXSSWithDialogInterception(allocCtx context.Context, targetURL, canary
 
 	dialogDetected := false
 	dialogMessage := ""
+	dialogType := ""
 
 	// Listen for JavaScript dialog events (alert, confirm, prompt)
 	chromedp.ListenTarget(ctx, func(ev interface{}) {
@@ -139,6 +147,7 @@ func verifyXSSWithDialogInterception(allocCtx context.Context, targetURL, canary
 		case *page.EventJavascriptDialogOpening:
 			dialogDetected = true
 			dialogMessage = e.Message
+			dialogType = string(e.Type)
 			// Dismiss the dialog to continue
 			go func() {
 				chromedp.Run(ctx, page.HandleJavaScriptDialog(true))
@@ -149,7 +158,7 @@ func verifyXSSWithDialogInterception(allocCtx context.Context, targetURL, canary
 	// Navigate and wait for potential dialog
 	err := chromedp.Run(ctx,
 		chromedp.Navigate(targetURL),
-		chromedp.Sleep(1*time.Second), // Reduced from 3s to 1s for speed
+		chromedp.Sleep(2*time.Second), // Increased back to 2s for better detection
 	)
 
 	if err != nil && !strings.Contains(err.Error(), "context deadline") {
@@ -157,10 +166,14 @@ func verifyXSSWithDialogInterception(allocCtx context.Context, targetURL, canary
 	}
 
 	if dialogDetected {
+		// STRICT CHECK: Dialog message MUST contain our canary
+		// This prevents false positives from existing JS alerts on the page
 		if strings.Contains(dialogMessage, canary) {
-			return true, fmt.Sprintf("JavaScript alert() triggered with canary: %s", canary)
+			return true, fmt.Sprintf("JavaScript %s() triggered with canary: %s", dialogType, canary)
 		}
-		return true, fmt.Sprintf("JavaScript dialog triggered: %s", dialogMessage)
+		// Dialog detected but canary not present - NOT confirmed (could be legitimate alert)
+		// Do NOT return true here - this is a potential false positive
+		return false, ""
 	}
 
 	return false, ""

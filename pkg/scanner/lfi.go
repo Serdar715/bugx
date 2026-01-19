@@ -12,70 +12,105 @@ import (
 
 type LFIScanner struct{}
 
-// File signatures that CONFIRM LFI - from LFISuite/dotdotpwn
+// File signatures that CONFIRM LFI - STRICT patterns only
+// These patterns are designed to be extremely specific to avoid false positives
+// Minimum match requirements and required patterns ensure accuracy
 var fileSignatures = map[string]struct {
-	Patterns []string
-	OS       string
-	File     string
+	Patterns       []string
+	OS             string
+	File           string
+	MinMatchCount  int    // Minimum patterns that must match for confirmation
+	RequirePattern string // Optional: This pattern MUST be present
 }{
 	"etc_passwd": {
+		// ONLY patterns that are UNIQUE to /etc/passwd format
+		// Format: username:password:UID:GID:GECOS:home:shell
 		Patterns: []string{
-			"root:x:0:0:",
-			"root:*:0:0:",
-			"daemon:x:1:1:",
-			"bin:x:2:2:",
-			"nobody:x:",
-			"/bin/bash",
-			"/bin/sh",
-			"/sbin/nologin",
+			"root:x:0:0:",             // root with x password placeholder
+			"root:*:0:0:",             // root with * password placeholder
+			"daemon:x:1:1:",           // Standard daemon user
+			"bin:x:2:2:",              // Standard bin user
+			"nobody:x:65534:",         // nobody with high UID
+			"nobody:x:99:",            // nobody on some systems
+			"sys:x:3:3:",              // sys user
+			"games:x:5:60:",           // games user
+			"mail:x:8:12:",            // mail user
+			"www-data:x:33:33:",       // www-data with specific UID:GID
+			"sshd:x:",                 // sshd service user
+			"mysql:x:",                // mysql service user
+			"postgres:x:",             // postgres service user
+			":0:0:root:/root:/bin/",   // Full root line pattern
+			":1:1:daemon:/usr/sbin:/", // Full daemon line pattern
 		},
-		OS:   "Linux",
-		File: "/etc/passwd",
+		OS:             "Linux",
+		File:           "/etc/passwd",
+		MinMatchCount:  4,             // Must match at least 4 SPECIFIC patterns
+		RequirePattern: "root:x:0:0:", // Most common root format MUST be present
 	},
 	"etc_shadow": {
+		// Shadow file has very specific hash formats
 		Patterns: []string{
-			"root:$",
-			"root:!:",
-			"root:*:",
-			"daemon:*:",
+			"root:$1$",        // MD5 hash (rarely used now)
+			"root:$5$",        // SHA-256 hash
+			"root:$6$",        // SHA-512 hash (most common)
+			"root:$y$",        // yescrypt (modern)
+			"root:!:",         // Locked account
+			"daemon:*:",       // Daemon locked
+			"bin:*:",          // Bin locked
+			"nobody:*:",       // Nobody locked
+			":::0:99999:7:::", // Shadow format with expiry fields
 		},
-		OS:   "Linux",
-		File: "/etc/shadow",
+		OS:             "Linux",
+		File:           "/etc/shadow",
+		MinMatchCount:  3,        // Must match 3 patterns
+		RequirePattern: "root:$", // Most likely format for readable shadow
 	},
 	"win_ini": {
+		// Windows win.ini is VERY minimal in modern Windows
+		// STRICT: These patterns must appear TOGETHER to confirm
+		// A typical win.ini contains EXACTLY these lines in this order:
+		// ; for 16-bit app support
+		// [fonts]
+		// [extensions]
+		// [mci extensions]
+		// [files]
+		// [Mail]
+		// MAPI=1
 		Patterns: []string{
-			"[fonts]",
-			"[extensions]",
-			"[mci extensions]",
-			"for 16-bit app support",
-			"[Mail]",
-			"[files]",
+			"; for 16-bit app support", // UNIQUE: This exact comment line
+			"[fonts]\r\n[extensions]",  // Consecutive sections (CRLF)
+			"[fonts]\n[extensions]",    // Consecutive sections (LF)
+			"[mci extensions]",         // This specific section name with space
+			"[Mail]\r\nMAPI=1",         // Mail section followed by MAPI (CRLF)
+			"[Mail]\nMAPI=1",           // Mail section followed by MAPI (LF)
 		},
-		OS:   "Windows",
-		File: "C:\\Windows\\win.ini",
+		OS:             "Windows",
+		File:           "C:\\Windows\\win.ini",
+		MinMatchCount:  3,                          // Must match 3 pattern combinations
+		RequirePattern: "; for 16-bit app support", // This EXACT line must be present
 	},
-	"win_hosts": {
+	// REMOVED: php_source - too many false positives from documentation/tutorials
+	// PHP source detection should only be via php://filter with base64 verification
+	"etc_group": {
+		// /etc/group format: groupname:password:GID:members
 		Patterns: []string{
-			"127.0.0.1",
-			"localhost",
-			"# Copyright",
+			"root:x:0:",      // Root group
+			"daemon:x:1:",    // Daemon group
+			"bin:x:2:",       // Bin group
+			"sys:x:3:",       // Sys group
+			"adm:x:4:",       // Adm group
+			"tty:x:5:",       // TTY group
+			"disk:x:6:",      // Disk group
+			"wheel:x:10:",    // Wheel group (sudo)
+			"sudo:x:",        // Sudo group
+			"www-data:x:33:", // www-data with specific GID
+			"shadow:x:42:",   // Shadow group
+			"utmp:x:43:",     // Utmp group
 		},
-		OS:   "Windows",
-		File: "C:\\Windows\\System32\\drivers\\etc\\hosts",
-	},
-	"php_source": {
-		Patterns: []string{
-			"<?php",
-			"<?=",
-			"function ",
-			"class ",
-			"$_GET",
-			"$_POST",
-			"include(",
-			"require(",
-		},
-		OS:   "Any",
-		File: "PHP Source Code",
+		OS:             "Linux",
+		File:           "/etc/group",
+		MinMatchCount:  5,           // Must match at least 5 group entries
+		RequirePattern: "root:x:0:", // Root group MUST be present
 	},
 }
 
@@ -96,6 +131,11 @@ var lfiPayloads = []struct {
 	{"/etc/passwd%00", "/etc/passwd", "etc_passwd"},
 	{"../../../etc/passwd%00.jpg", "/etc/passwd", "etc_passwd"},
 
+	// Linux /etc/group (secondary verification target)
+	{"../../../etc/group", "/etc/group", "etc_group"},
+	{"....//....//....//etc/group", "/etc/group", "etc_group"},
+	{"/etc/group", "/etc/group", "etc_group"},
+
 	// Windows win.ini
 	{"..\\..\\..\\windows\\win.ini", "win.ini", "win_ini"},
 	{"....//....//....//windows/win.ini", "win.ini", "win_ini"},
@@ -103,10 +143,8 @@ var lfiPayloads = []struct {
 	{"/windows/win.ini", "win.ini", "win_ini"},
 	{"..%5c..%5c..%5cwindows%5cwin.ini", "win.ini", "win_ini"},
 
-	// PHP wrappers (for source disclosure)
-	{"php://filter/convert.base64-encode/resource=index.php", "PHP Source", "php_source"},
-	{"php://filter/read=convert.base64-encode/resource=../index.php", "PHP Source", "php_source"},
-	{"php://filter/convert.base64-encode/resource=config.php", "PHP Source", "php_source"},
+	// REMOVED: PHP wrappers - too many false positives without proper base64 decode verification
+	// php://filter detection requires decoding base64 and checking for actual PHP code
 }
 
 func (s *LFIScanner) Scan(config ScanConfig) []ScanResult {
@@ -214,14 +252,31 @@ func (s *LFIScanner) Scan(config ScanConfig) []ScanResult {
 							diff = -diff
 						}
 						if diff < 5 {
-							return
+							continue
 						}
 					}
 
 					// Verify with file signatures
 					sig, exists := fileSignatures[payload.SignatureKey]
 					if !exists {
-						return
+						continue
+					}
+
+					// Check for required pattern FIRST
+					if sig.RequirePattern != "" && !strings.Contains(resp.Body, sig.RequirePattern) {
+						continue // Required pattern not found, skip
+					}
+
+					// Check that patterns are NOT in baseline (avoid false positives)
+					baselineHasPatterns := 0
+					for _, pattern := range sig.Patterns {
+						if strings.Contains(baseline.Body, pattern) {
+							baselineHasPatterns++
+						}
+					}
+					// If baseline already has 2+ patterns, this is likely a false positive
+					if baselineHasPatterns >= 2 {
+						continue
 					}
 
 					matchedPatterns := 0
@@ -231,15 +286,22 @@ func (s *LFIScanner) Scan(config ScanConfig) []ScanResult {
 						}
 					}
 
-					// Need at least 2 pattern matches for confirmation
-					if matchedPatterns >= 2 {
+					// Use MinMatchCount from signature, default to 2 for backwards compatibility
+					minRequired := sig.MinMatchCount
+					if minRequired == 0 {
+						minRequired = 2
+					}
+
+					// Need pattern matches for confirmation
+					if matchedPatterns >= minRequired {
 						fmt.Printf("%s %s\n",
 							utils.Red("[✓] LFI CONFIRMED:"),
 							utils.Cyan(targetURL))
-						fmt.Printf("    → File: %s (%s), Matched patterns: %d\n",
+						fmt.Printf("    → File: %s (%s), Matched patterns: %d/%d required\n",
 							utils.Yellow(sig.File),
 							utils.White(sig.OS),
-							matchedPatterns)
+							matchedPatterns,
+							minRequired)
 
 						processor.Add(ScanResult{
 							URL:        targetURL,

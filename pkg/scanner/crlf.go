@@ -21,47 +21,24 @@ func generateCRLFToken() string {
 }
 
 // CRLF injection payloads with TOKEN placeholder
+// All payloads use TOKEN which is replaced with a unique canary for verification
+// This ensures we only detect injections WE caused, not existing content
 var crlfPayloads = []string{
-	// Basic CRLF - Set-Cookie injection
+	// Basic CRLF - Set-Cookie injection (most reliable)
 	"%0d%0aSet-Cookie:TOKEN=injected",
 	"%0d%0aSet-Cookie: TOKEN=injected",
-	"%0aSet-Cookie:TOKEN=injected",
-	"%0dSet-Cookie:TOKEN=injected",
 
-	// Double encoding
+	// Double encoding (for WAF bypass)
 	"%250d%250aSet-Cookie:TOKEN=injected",
-	"%25%30%64%25%30%61Set-Cookie:TOKEN=injected",
 
-	// Unicode variants
-	"%E5%98%8D%E5%98%8ASet-Cookie:TOKEN=injected",
-	"%u000d%u000aSet-Cookie:TOKEN=injected",
+	// X-Header injection (custom header with token)
+	"%0d%0aX-Injected-By:TOKEN",
 
-	// Location header injection (Open Redirect via CRLF)
-	"%0d%0aLocation:https://evil.com",
-	"%0d%0aLocation: https://TOKEN.evil.com",
+	// Location header injection (uses TOKEN domain)
+	"%0d%0aLocation:https://TOKEN.test.invalid",
 
-	// X-Header injection
-	"%0d%0aX-Injected:TOKEN",
-	"%0d%0aX-TOKEN:injected",
-
-	// Content-Type injection
-	"%0d%0aContent-Type:text/html",
-
-	// Full response injection
+	// Full response injection (body contains TOKEN)
 	"%0d%0a%0d%0a<html>TOKEN</html>",
-	"%0d%0aContent-Length:35%0d%0aX-Injected:header%0d%0a%0d%0aTOKEN",
-
-	// Tab and other variants
-	"%0d%09Set-Cookie:TOKEN=injected",
-	"%%0d0aSet-Cookie:TOKEN=injected",
-	"%0d%0a%20Set-Cookie:TOKEN=injected",
-
-	// Null byte variants
-	"%00%0d%0aSet-Cookie:TOKEN=injected",
-
-	// Path variants
-	"/%0d%0aSet-Cookie:TOKEN=injected",
-	"//%0d%0aSet-Cookie:TOKEN=injected",
 }
 
 func (s *CRLFScanner) Scan(config ScanConfig) []ScanResult {
@@ -142,49 +119,57 @@ func verifyCRLFInjection(targetURL, token, cookie string, timeout int) (bool, st
 	}
 	defer resp.Body.Close()
 
-	// Check for injected headers
+	// Check for injected headers - ALL checks require our unique TOKEN
 	injectionTypes := []string{}
 
-	// 1. Check Set-Cookie header injection
+	// 1. Check Set-Cookie header injection (TOKEN must be present)
 	for _, cookieHeader := range resp.Header.Values("Set-Cookie") {
-		if strings.Contains(cookieHeader, token) || strings.Contains(cookieHeader, "injected") {
+		if strings.Contains(cookieHeader, token) {
 			injectionTypes = append(injectionTypes, fmt.Sprintf("Set-Cookie injection: %s", cookieHeader))
 		}
 	}
 
-	// 2. Check X-Injected header
-	if xInjected := resp.Header.Get("X-Injected"); xInjected != "" {
+	// 2. Check X-Injected-By header (our specific header)
+	if xInjected := resp.Header.Get("X-Injected-By"); xInjected != "" {
 		if strings.Contains(xInjected, token) {
-			injectionTypes = append(injectionTypes, fmt.Sprintf("X-Injected header: %s", xInjected))
+			injectionTypes = append(injectionTypes, fmt.Sprintf("X-Injected-By header: %s", xInjected))
 		}
 	}
 
-	// 3. Check for any header containing our token
+	// 3. Check for any header containing our TOKEN (strict check)
 	for name, values := range resp.Header {
 		for _, value := range values {
-			if strings.Contains(strings.ToLower(name), token) || strings.Contains(value, token) {
-				injectionTypes = append(injectionTypes, fmt.Sprintf("Header %s: %s", name, value))
+			// Only match if TOKEN is in the value (not just similar strings)
+			if strings.Contains(value, token) {
+				injectionTypes = append(injectionTypes, fmt.Sprintf("Header %s contains token: %s", name, value))
 			}
 		}
 	}
 
-	// 4. Check for Location header injection (CRLF to Open Redirect)
+	// 4. Check for Location header injection (TOKEN domain must be present)
 	location := resp.Header.Get("Location")
-	if location != "" && (strings.Contains(location, "evil.com") || strings.Contains(location, token)) {
+	if location != "" && strings.Contains(location, token) {
 		injectionTypes = append(injectionTypes, fmt.Sprintf("Location header injection: %s", location))
 	}
 
-	// 5. Check response body for injected content
-	bodyBytes := make([]byte, 1024*10)
+	// 5. Check response body for injected content (CRLF response splitting)
+	// Read more of the body to catch injections
+	bodyBytes := make([]byte, 1024*50) // 50KB should be enough
 	n, _ := resp.Body.Read(bodyBytes)
 	body := string(bodyBytes[:n])
 
-	// Check if token appears in body in HTML context (response injection)
-	if strings.Contains(body, "<html>"+token) || strings.Contains(body, token) {
-		// Make sure it's not just reflected normally
-		if strings.Contains(body, fmt.Sprintf("<html>%s</html>", token)) {
-			injectionTypes = append(injectionTypes, "Response body injection detected")
-		}
+	// STRICT CHECK: Response body injection via CRLF is only confirmed if:
+	// 1. Our token appears in a legitimate HTML structure that WE injected, OR
+	// 2. Token appears at the very beginning of body (response splitting)
+
+	// Check for our specific injection pattern (not just token reflection)
+	if strings.Contains(body, fmt.Sprintf("<html>%s</html>", token)) {
+		injectionTypes = append(injectionTypes, "Response body injection (HTML) detected")
+	}
+
+	// Check if response was truly split (token at start after double CRLF)
+	if strings.HasPrefix(strings.TrimSpace(body), token) {
+		injectionTypes = append(injectionTypes, "Response splitting detected")
 	}
 
 	if len(injectionTypes) > 0 {

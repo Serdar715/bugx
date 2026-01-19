@@ -223,3 +223,86 @@ func RegexMatch(pattern string, content string) bool {
 	matched, _ := regexp.MatchString(pattern, content)
 	return matched
 }
+
+// ContentSimilarity calculates the similarity ratio between two strings
+// using a simple token-based Jaccard similarity (inspired by SQLMap's page comparison)
+// Returns a value between 0.0 (completely different) and 1.0 (identical)
+func ContentSimilarity(content1, content2 string) float64 {
+	if content1 == content2 {
+		return 1.0
+	}
+	if len(content1) == 0 || len(content2) == 0 {
+		return 0.0
+	}
+
+	// Simple word tokenization
+	words1 := strings.Fields(content1)
+	words2 := strings.Fields(content2)
+
+	if len(words1) == 0 || len(words2) == 0 {
+		// Fall back to length-based comparison
+		shorter := len(content1)
+		longer := len(content2)
+		if shorter > longer {
+			shorter, longer = longer, shorter
+		}
+		return float64(shorter) / float64(longer)
+	}
+
+	// Create word sets
+	set1 := make(map[string]bool)
+	for _, w := range words1 {
+		set1[w] = true
+	}
+
+	set2 := make(map[string]bool)
+	for _, w := range words2 {
+		set2[w] = true
+	}
+
+	// Calculate intersection and union
+	intersection := 0
+	for w := range set1 {
+		if set2[w] {
+			intersection++
+		}
+	}
+
+	union := len(set1)
+	for w := range set2 {
+		if !set1[w] {
+			union++
+		}
+	}
+
+	if union == 0 {
+		return 0.0
+	}
+
+	return float64(intersection) / float64(union)
+}
+
+// FindUniqueStrings finds strings that appear in content but NOT in baseline
+// This is used to identify potential "positive match" indicators (like SQLMap's --string)
+func FindUniqueStrings(content, baseline string, minLen int) []string {
+	if minLen < 3 {
+		minLen = 3
+	}
+
+	contentWords := strings.Fields(content)
+	baselineSet := make(map[string]bool)
+	for _, w := range strings.Fields(baseline) {
+		baselineSet[w] = true
+	}
+
+	var unique []string
+	seen := make(map[string]bool)
+	for _, w := range contentWords {
+		if len(w) >= minLen && !baselineSet[w] && !seen[w] {
+			unique = append(unique, w)
+			seen[w] = true
+		}
+	}
+
+	return unique
+}

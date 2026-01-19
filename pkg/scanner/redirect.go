@@ -16,41 +16,36 @@ import (
 
 type OpenRedirectScanner struct{}
 
-// Redirect test domains - we check if redirect goes to these
+// Redirect test domains - we use unique domains that should NEVER appear legitimately
+// IMPORTANT: Avoid common domains like google.com, example.com as they may cause false positives
 var redirectTestDomains = []string{
 	"evil.com",
 	"attacker.com",
-	"google.com",
-	"example.com",
 	"bugx.test",
+	"xss-payload.evil",
+	"redir-test.invalid",
 }
 
-// Open redirect payloads with target domain placeholder
+// Open redirect payloads with TARGET domain placeholder
+// STREAMLINED: Only include proven, reliable payloads
+// Each payload is replaced with unique test domain for verification
 var redirectPayloads = []string{
-	"//TARGET",
-	"https://TARGET",
-	"http://TARGET",
-	"//TARGET/",
-	"///TARGET",
-	"////TARGET",
-	"/\\TARGET",
-	"\\/TARGET",
-	"//TARGET%00",
-	"//TARGET%0d%0a",
-	"//TARGET@localhost",
-	"//localhost@TARGET",
-	"https://TARGET%2f%2f",
-	"//TARGET\\@localhost",
-	"javascript://TARGET/%0aalert(1)",
-	"//TARGET?",
-	"//TARGET#",
-	"/%09/TARGET",
-	"/%5cTARGET",
-	"/.TARGET",
-	"/TARGET/",
-	"////\\;@TARGET",
-	"https:TARGET",
-	"//TARGET%E3%80%82evil.com",
+	// Most common and reliable redirect payloads
+	"//TARGET",       // Protocol-relative URL
+	"https://TARGET", // Full HTTPS URL
+	"http://TARGET",  // Full HTTP URL
+
+	// Bypass techniques that actually work
+	"//TARGET/",            // With trailing slash
+	"///TARGET",            // Triple slash
+	"//TARGET%00",          // Null byte
+	"//TARGET@localhost",   // @ bypass
+	"//localhost@TARGET",   // @ bypass reversed
+	"https://TARGET%2f%2f", // Encoded slashes
+
+	// Advanced bypass
+	"/%09/TARGET", // Tab character
+	"/%5cTARGET",  // Backslash encoded
 }
 
 func (s *OpenRedirectScanner) Scan(config ScanConfig) []ScanResult {

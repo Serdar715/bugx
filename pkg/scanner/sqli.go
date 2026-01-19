@@ -11,56 +11,64 @@ import (
 
 type SQLiScanner struct{}
 
-// SQL error signatures for different databases - from sqlmap
+// SQL error signatures for different databases
+// STRICT: Each pattern must be HIGHLY specific to avoid false positives
+// General patterns like "Warning" alone are NOT included
 var sqlErrorSignatures = map[string][]string{
 	"MySQL": {
-		"SQL syntax.*MySQL",
-		"Warning.*mysql_",
-		"MySqlException",
-		"valid MySQL result",
+		// Very specific MySQL error messages
+		"You have an error in your SQL syntax",
 		"check the manual that corresponds to your (MySQL|MariaDB) server version",
-		"MySqlClient\\.",
-		"com\\.mysql\\.jdbc",
-		"Unclosed quotation mark after the character string",
+		"MySQL server version for the right syntax",
+		"MySqlException \\(0x",                   // Exception with error code
+		"com\\.mysql\\.jdbc\\.exceptions",        // Java MySQL exception
+		"SQLSTATE\\[42000\\].*MySQL",             // PHP PDO MySQL error
+		"#1064 - You have an error",              // phpMyAdmin style
+		"supplied argument is not a valid MySQL", // PHP mysql_* error
 	},
 	"PostgreSQL": {
-		"PostgreSQL.*ERROR",
-		"Warning.*\\Wpg_",
-		"valid PostgreSQL result",
-		"Npgsql\\.",
-		"PG::SyntaxError:",
-		"org\\.postgresql\\.util\\.PSQLException",
-		"ERROR:\\s+syntax error at or near",
+		// Very specific PostgreSQL error messages
+		"ERROR:  syntax error at or near",
+		"ERROR:  unterminated quoted string",
+		"ERROR:  invalid input syntax for",
+		"ERROR:  column .* does not exist",
+		"PG::SyntaxError:",      // Ruby pg gem
+		"PSQLException: ERROR:", // Java PostgreSQL
+		"SQLSTATE\\[42601\\]",   // SQL syntax error code
+		"SQLSTATE\\[42P01\\]",   // Undefined table
 	},
 	"MSSQL": {
-		"Driver.* SQL[\\-_ ]*Server",
-		"OLE DB.* SQL Server",
-		"\\bSQL Server[^&lt;]+Driver",
-		"Warning.*mssql_",
-		"\\bSQL Server[^&lt;]+[0-9a-fA-F]{8}",
-		"System\\.Data\\.SqlClient\\.",
-		"Exception.*\\WSystem\\.Data\\.SqlClient\\.",
+		// Very specific MSSQL error messages
 		"Unclosed quotation mark after the character string",
-		"com\\.microsoft\\.sqlserver\\.jdbc",
+		"Incorrect syntax near",
+		"ODBC SQL Server Driver.*SQL Server",
+		"Microsoft OLE DB Provider for SQL Server",
+		"\\[Microsoft\\]\\[ODBC SQL Server Driver\\]",
+		"SqlException \\(0x",               // .NET exception with code
+		"Msg \\d+, Level \\d+, State \\d+", // SQL Server error format
+		"SQLSTATE\\[42000\\].*SQL Server",
 	},
 	"Oracle": {
-		"\\bORA-[0-9][0-9][0-9][0-9]",
-		"Oracle error",
-		"Oracle.*Driver",
-		"Warning.*\\Woci_",
-		"Warning.*\\Wora_",
-		"oracle\\.jdbc\\.driver",
-		"quoted string not properly terminated",
+		// Very specific Oracle error codes and messages
+		"ORA-00933: SQL command not properly ended",
+		"ORA-00942: table or view does not exist",
+		"ORA-01756: quoted string not properly terminated",
+		"ORA-01722: invalid number",
+		"ORA-00904: invalid identifier",
+		"ORA-\\d{5}:", // Any ORA error with colon
+		"oracle\\.jdbc\\.driver\\.OracleDriver",
+		"PLS-\\d{5}:", // PL/SQL error codes
 	},
 	"SQLite": {
-		"SQLite/JDBCDriver",
-		"SQLite\\.Exception",
-		"System\\.Data\\.SQLite\\.SQLiteException",
-		"Warning.*sqlite_",
-		"Warning.*SQLite3::",
-		"\\[SQLITE_ERROR\\]",
-		"SQLite error \\d+:",
-		"sqlite3\\.OperationalError:",
+		// Very specific SQLite error messages
+		"SQLITE_ERROR: near",
+		"unrecognized token:",
+		"SQLite3::SQLException:",      // Ruby SQLite
+		"sqlite3\\.OperationalError:", // Python SQLite
+		"\\[SQLITE_ERROR\\] SQL error or missing database",
+		"SQLSTATE\\[HY000\\].*SQLite",
+		"no such column:",
+		"no such table:",
 	},
 }
 
@@ -152,9 +160,9 @@ func (s *SQLiScanner) Scan(config ScanConfig) []ScanResult {
 			// 2. Time-based detection (most reliable)
 			fmt.Printf("%s %s\n", utils.White("[*] Testing time-based on:"), utils.Cyan(truncateURL(url, 60)))
 
-			// First, measure baseline response time
+			// First, measure baseline response time (5 samples for better accuracy)
 			var baselineTimes []float64
-			for i := 0; i < 3; i++ {
+			for i := 0; i < 5; i++ {
 				start := time.Now()
 				_, err := utils.MakeRequest(url, config.Cookie, config.Timeout)
 				if err == nil {
@@ -162,57 +170,87 @@ func (s *SQLiScanner) Scan(config ScanConfig) []ScanResult {
 				}
 			}
 
-			avgBaseline := 0.0
+			// Declare variables before goto to avoid "jumps over variable declaration" error
+			var avgBaseline, maxBaseline float64
+
+			if len(baselineTimes) < 3 {
+				goto skipTimeBased // Connection too unstable
+			}
+
+			// Calculate average and max baseline
 			for _, t := range baselineTimes {
 				avgBaseline += t
+				if t > maxBaseline {
+					maxBaseline = t
+				}
 			}
-			if len(baselineTimes) > 0 {
-				avgBaseline /= float64(len(baselineTimes))
+			avgBaseline /= float64(len(baselineTimes))
+
+			// If baseline variance is too high, skip time-based (unreliable)
+			if maxBaseline-avgBaseline > 2.0 {
+				fmt.Printf("%s Network too unstable for time-based on: %s\n",
+					utils.Yellow("[!]"), utils.Cyan(truncateURL(url, 50)))
+				goto skipTimeBased
 			}
 
 			for _, tbPayload := range timeBasedPayloads {
 				targetURL := url + tbPayload.Payload
 
-				start := time.Now()
-				_, err := utils.MakeRequest(targetURL, config.Cookie, config.Timeout+10)
-				elapsed := time.Since(start).Seconds()
+				// Triple verification: need 2 out of 3 successful delays
+				successCount := 0
+				delayTimes := []float64{}
 
-				if err != nil {
-					continue
+				for attempt := 0; attempt < 3; attempt++ {
+					start := time.Now()
+					_, err := utils.MakeRequest(targetURL, config.Cookie, config.Timeout+10)
+					elapsed := time.Since(start).Seconds()
+
+					if err != nil {
+						continue
+					}
+
+					// Check if response took significantly longer
+					// Use maxBaseline as reference to avoid false positives from jitter
+					expectedMin := tbPayload.ExpectedDelay - 1.5 // 1.5 second tolerance
+					actualDelay := elapsed - maxBaseline
+
+					if actualDelay >= expectedMin {
+						successCount++
+						delayTimes = append(delayTimes, elapsed)
+					}
 				}
 
-				// Check if response took significantly longer (expected delay - tolerance)
-				expectedMin := tbPayload.ExpectedDelay - 1.0 // 1 second tolerance
-				actualDelay := elapsed - avgBaseline
-
-				if actualDelay >= expectedMin {
-					// Verify with second request
-					start2 := time.Now()
-					_, _ = utils.MakeRequest(targetURL, config.Cookie, config.Timeout+10)
-					elapsed2 := time.Since(start2).Seconds()
-
-					if elapsed2-avgBaseline >= expectedMin {
-						fmt.Printf("%s %s\n",
-							utils.Red("[✓] SQLi CONFIRMED (Time-based):"),
-							utils.Cyan(targetURL))
-						fmt.Printf("    → Database: %s, Delay: %ss (baseline: %.2fs)\n",
-							utils.Yellow(tbPayload.DBType),
-							utils.White(fmt.Sprintf("%.2f", elapsed)),
-							avgBaseline)
-
-						processor.Add(ScanResult{
-							URL:          targetURL,
-							Vulnerable:   true,
-							Payload:      tbPayload.Payload,
-							ResponseTime: elapsed,
-							Details:      fmt.Sprintf("Time-based SQLi - %s (%.2fs delay)", tbPayload.DBType, elapsed),
-						})
-						break // Found time-based, no need to test more
+				// Need at least 2 successful delay detections out of 3
+				if successCount >= 2 {
+					avgDelay := 0.0
+					for _, d := range delayTimes {
+						avgDelay += d
 					}
+					avgDelay /= float64(len(delayTimes))
+
+					fmt.Printf("%s %s\n",
+						utils.Red("[✓] SQLi CONFIRMED (Time-based):"),
+						utils.Cyan(targetURL))
+					fmt.Printf("    → Database: %s, Avg Delay: %.2fs (baseline: %.2fs), Confirmations: %d/3\n",
+						utils.Yellow(tbPayload.DBType),
+						avgDelay,
+						avgBaseline,
+						successCount)
+
+					processor.Add(ScanResult{
+						URL:          targetURL,
+						Vulnerable:   true,
+						Payload:      tbPayload.Payload,
+						ResponseTime: avgDelay,
+						Details:      fmt.Sprintf("Time-based SQLi - %s (%.2fs delay, %d/3 confirmed)", tbPayload.DBType, avgDelay, successCount),
+					})
+					break // Found time-based, no need to test more
 				}
 			}
 
-			// 3. Boolean-based detection
+		skipTimeBased:
+
+			// 3. Boolean-based detection (requires double verification)
 			for _, bp := range booleanPayloads {
 				trueURL := url + bp.TruePayload
 				falseURL := url + bp.FalsePayload
@@ -224,27 +262,61 @@ func (s *SQLiScanner) Scan(config ScanConfig) []ScanResult {
 					continue
 				}
 
-				// Calculate response difference
+				// Status code check: both should be 200 (or same code)
+				if trueResp.StatusCode != falseResp.StatusCode {
+					// Different status codes might indicate injection but also can be error handling
+					// Skip unless both are 200
+					if trueResp.StatusCode != 200 || falseResp.StatusCode != 200 {
+						continue
+					}
+				}
+
+				// Calculate response difference using multiple methods (SQLMap-style)
 				lenDiff := math.Abs(float64(len(trueResp.Body) - len(falseResp.Body)))
 				baseLen := float64(len(baseline.Body))
 
-				// Significant difference (>10% of baseline)
-				if lenDiff > baseLen*0.1 && lenDiff > 100 {
+				// Method 1: Length-based difference (>15% of baseline AND >200 bytes)
+				lengthCheckPassed := lenDiff > baseLen*0.15 && lenDiff > 200
+
+				// Method 2: Content similarity (SQLMap-style Jaccard similarity)
+				// True response should be similar to baseline, False should be different
+				trueSimilarity := utils.ContentSimilarity(trueResp.Body, baseline.Body)
+				falseSimilarity := utils.ContentSimilarity(falseResp.Body, baseline.Body)
+				similarityDiff := trueSimilarity - falseSimilarity
+
+				// Content check: True should be >90% similar to baseline, False should be <80%
+				contentCheckPassed := trueSimilarity > 0.90 && falseSimilarity < 0.80 && similarityDiff > 0.1
+
+				// Need BOTH checks to pass for high confidence, or strong length diff
+				if (lengthCheckPassed && contentCheckPassed) || (lenDiff > baseLen*0.30 && lenDiff > 500) {
 					// Verify true response is similar to baseline
 					trueDiff := math.Abs(float64(len(trueResp.Body) - len(baseline.Body)))
-					if trueDiff < baseLen*0.1 {
-						fmt.Printf("%s %s\n",
-							utils.Red("[✓] SQLi CONFIRMED (Boolean-based):"),
-							utils.Cyan(trueURL))
-						fmt.Printf("    → True/False response diff: %.0f bytes\n", lenDiff)
+					if trueDiff < baseLen*0.1 || trueSimilarity > 0.95 {
+						// Double verification: Test again to confirm it's consistent
+						trueResp2, err3 := utils.MakeRequest(trueURL, config.Cookie, config.Timeout)
+						falseResp2, err4 := utils.MakeRequest(falseURL, config.Cookie, config.Timeout)
 
-						processor.Add(ScanResult{
-							URL:        trueURL,
-							Vulnerable: true,
-							Payload:    bp.TruePayload,
-							Details:    fmt.Sprintf("Boolean-based SQLi (diff: %.0f bytes)", lenDiff),
-						})
-						break
+						if err3 == nil && err4 == nil {
+							lenDiff2 := math.Abs(float64(len(trueResp2.Body) - len(falseResp2.Body)))
+							similarity2 := utils.ContentSimilarity(trueResp2.Body, baseline.Body)
+
+							// Second test should show similar pattern
+							if (lenDiff2 > baseLen*0.15 && lenDiff2 > 200) || similarity2 > 0.90 {
+								fmt.Printf("%s %s\n",
+									utils.Red("[✓] SQLi CONFIRMED (Boolean-based):"),
+									utils.Cyan(trueURL))
+								fmt.Printf("    → True/False diff: %.0f bytes, Similarity: %.1f%% vs %.1f%%\n",
+									lenDiff, trueSimilarity*100, falseSimilarity*100)
+
+								processor.Add(ScanResult{
+									URL:        trueURL,
+									Vulnerable: true,
+									Payload:    bp.TruePayload,
+									Details:    fmt.Sprintf("Boolean-based SQLi (diff: %.0f bytes, similarity verified)", lenDiff),
+								})
+								break
+							}
+						}
 					}
 				}
 			}
