@@ -276,7 +276,8 @@ func (s *XSSScanner) Scan(config ScanConfig) []ScanResult {
 		// Step 2: Detect potential DOM XSS
 		domXSSFound := detectDOMXSSPatterns(baseResp.Body)
 		if len(domXSSFound) > 0 {
-			fmt.Printf("%s Potential DOM XSS patterns found in: %s\n", utils.Yellow("[!]"), truncateURL(baseURL, 60))
+			// Show full URL for potential findings so user can investigate
+			fmt.Printf("%s Potential DOM XSS patterns found in: %s\n", utils.Yellow("[!]"), baseURL)
 			for _, pattern := range domXSSFound {
 				fmt.Printf("    %s %s\n", utils.Cyan("→"), pattern)
 			}
