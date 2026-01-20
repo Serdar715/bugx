@@ -413,7 +413,7 @@ func testParameterForXSS(allocCtx context.Context, baseURL, paramName string, ba
 		if confirmed {
 			fmt.Printf("%s %s\n",
 				utils.Red("[✓] XSS CONFIRMED:"),
-				utils.Cyan(truncateURL(targetURL, 80)))
+				utils.Cyan(targetURL)) // Do not truncate confirmed URLs so user can verify
 			fmt.Printf("    %s %s\n",
 				utils.Green("→"),
 				utils.White(details))
