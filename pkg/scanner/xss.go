@@ -240,6 +240,15 @@ func (s *XSSScanner) Scan(config ScanConfig) []ScanResult {
 		chromedp.WindowSize(1920, 1080),
 	)
 
+	// Try to find Chrome executable manually if not in PATH
+	if chromePath := utils.FindChromePath(); chromePath != "" {
+		fmt.Printf("%s Found Chrome at: %s\n", utils.Green("[*]"), chromePath)
+		opts = append(opts, chromedp.ExecPath(chromePath))
+	} else {
+		// If explicit path not found, print a debug message (optional)
+		// fmt.Println(utils.Yellow("[*] Attempting to auto-detect Chrome..."))
+	}
+
 	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), opts...)
 	defer allocCancel()
 

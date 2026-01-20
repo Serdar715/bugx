@@ -65,6 +65,11 @@ func (s *OpenRedirectScanner) Scan(config ScanConfig) []ScanResult {
 		chromedp.Flag("ignore-certificate-errors", true),
 	)
 
+	// Try to find Chrome executable manually
+	if chromePath := utils.FindChromePath(); chromePath != "" {
+		opts = append(opts, chromedp.ExecPath(chromePath))
+	}
+
 	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), opts...)
 	defer allocCancel()
 

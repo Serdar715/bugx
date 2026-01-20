@@ -306,3 +306,40 @@ func FindUniqueStrings(content, baseline string, minLen int) []string {
 
 	return unique
 }
+
+// FindChromePath attempts to locate the Chrome executable in common locations
+func FindChromePath() string {
+	var paths []string
+
+	switch runtime.GOOS {
+	case "windows":
+		paths = []string{
+			os.Getenv("ProgramFiles") + "\\Google\\Chrome\\Application\\chrome.exe",
+			os.Getenv("ProgramFiles(x86)") + "\\Google\\Chrome\\Application\\chrome.exe",
+			os.Getenv("LocalAppData") + "\\Google\\Chrome\\Application\\chrome.exe",
+			"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+			"C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+		}
+	case "darwin":
+		paths = []string{
+			"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+			"/Applications/Chromium.app/Contents/MacOS/Chromium",
+		}
+	case "linux":
+		paths = []string{
+			"/usr/bin/google-chrome",
+			"/usr/bin/chromium",
+			"/usr/bin/chromium-browser",
+			"/snap/bin/chromium",
+		}
+	}
+
+	for _, path := range paths {
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+
+	// Return empty string to let chromedp attempt default detection
+	return ""
+}
