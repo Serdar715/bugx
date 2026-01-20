@@ -256,8 +256,11 @@ func (s *XSSScanner) Scan(config ScanConfig) []ScanResult {
 	testCtx, testCancel := chromedp.NewContext(allocCtx)
 	if err := chromedp.Run(testCtx, chromedp.Navigate("about:blank")); err != nil {
 		testCancel()
-		fmt.Println(utils.Red("[!] Chrome/Chromium not found. Please install Chrome for XSS scanning."))
-		fmt.Println(utils.Yellow("[i] Install with: choco install googlechrome (Windows) or apt install chromium-browser (Linux)"))
+		fmt.Println(utils.Red("[!] Chrome/Chromium not found. Please install Chrome/Chromium for XSS scanning."))
+		fmt.Println(utils.Yellow("[i] Installation on Linux (Try these commands):"))
+		fmt.Println(utils.Yellow("    - sudo apt update && sudo apt install chromium"))
+		fmt.Println(utils.Yellow("    - sudo snap install chromium"))
+		fmt.Println(utils.Yellow("[i] Windows users: Please install Google Chrome"))
 		return nil
 	}
 	testCancel()
