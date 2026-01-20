@@ -307,39 +307,55 @@ func FindUniqueStrings(content, baseline string, minLen int) []string {
 	return unique
 }
 
-// FindChromePath attempts to locate the Chrome executable in common locations
+// FindChromePath attempts to locate Chrome or Edge executable
 func FindChromePath() string {
 	var paths []string
 
 	switch runtime.GOOS {
 	case "windows":
 		paths = []string{
+			// Chrome Paths
+			"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+			"C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
 			os.Getenv("ProgramFiles") + "\\Google\\Chrome\\Application\\chrome.exe",
 			os.Getenv("ProgramFiles(x86)") + "\\Google\\Chrome\\Application\\chrome.exe",
 			os.Getenv("LocalAppData") + "\\Google\\Chrome\\Application\\chrome.exe",
-			"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-			"C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+			// Edge Paths (Fallback)
+			"C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+			"C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
 		}
 	case "darwin":
 		paths = []string{
 			"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
 			"/Applications/Chromium.app/Contents/MacOS/Chromium",
+			"/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
 		}
 	case "linux":
 		paths = []string{
 			"/usr/bin/google-chrome",
 			"/usr/bin/chromium",
 			"/usr/bin/chromium-browser",
+			"/usr/bin/microsoft-edge",
 			"/snap/bin/chromium",
 		}
 	}
 
+	fmt.Println(Yellow("[*] Searching for Chrome/Edge..."))
 	for _, path := range paths {
+		if path == "" {
+			continue
+		}
+
+		// Debug print
+		// fmt.Printf("Checking: %s ... ", path)
+
 		if _, err := os.Stat(path); err == nil {
+			// fmt.Println("FOUND!")
 			return path
+		} else {
+			// fmt.Println("Not found (" + err.Error() + ")")
 		}
 	}
 
-	// Return empty string to let chromedp attempt default detection
 	return ""
 }
