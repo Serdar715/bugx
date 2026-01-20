@@ -196,11 +196,19 @@ func (s *SQLiScanner) Scan(config ScanConfig) []ScanResult {
 			for _, tbPayload := range timeBasedPayloads {
 				targetURL := url + tbPayload.Payload
 
-				// Triple verification: need 2 out of 3 successful delays
+				// SQLMap-style Verification:
+				// 1. We start with a baseline check (already done).
+				// 2. We perform multiple checks (increased to 4) to ensure consistency.
+				// 3. We require a high success rate (3/4) to confirm.
+
 				successCount := 0
 				delayTimes := []float64{}
+				attempts := 4 // Increased from 3 to 4 for better statistical significance
 
-				for attempt := 0; attempt < 3; attempt++ {
+				for attempt := 0; attempt < attempts; attempt++ {
+					// Add small random sleep between requests to avoid synchronization artifacts
+					time.Sleep(time.Duration(50+attempt*50) * time.Millisecond)
+
 					start := time.Now()
 					_, err := utils.MakeRequest(targetURL, config.Cookie, config.Timeout+10)
 					elapsed := time.Since(start).Seconds()
@@ -209,19 +217,28 @@ func (s *SQLiScanner) Scan(config ScanConfig) []ScanResult {
 						continue
 					}
 
-					// Check if response took significantly longer
-					// Use maxBaseline as reference to avoid false positives from jitter
-					expectedMin := tbPayload.ExpectedDelay - 1.5 // 1.5 second tolerance
-					actualDelay := elapsed - maxBaseline
+					// Strict Time Comparison:
+					// The elapsed time must be close to the expected delay.
+					// It must ALSO be significantly higher than the MAXIMUM baseline we ever saw.
 
-					if actualDelay >= expectedMin {
+					// 1. Check vs Expected
+					// Allow 1.0s variance (e.g. 5s delay -> must be > 4.0s)
+					expectedMin := tbPayload.ExpectedDelay - 1.0
+
+					// 2. Check vs Baseline
+					// Must be at least 3 seconds slower than the slowest normal request
+					// This filters out sites that are just naturally slow/jittery
+					significantlySlower := elapsed > (maxBaseline + 3.0)
+
+					if elapsed >= expectedMin && significantlySlower {
 						successCount++
 						delayTimes = append(delayTimes, elapsed)
 					}
 				}
 
-				// Need at least 2 successful delay detections out of 3
-				if successCount >= 2 {
+				// Require 3 out of 4 successful delay detections
+				// This drastically reduces false positives from random network spikes
+				if successCount >= 3 {
 					avgDelay := 0.0
 					for _, d := range delayTimes {
 						avgDelay += d
@@ -231,18 +248,19 @@ func (s *SQLiScanner) Scan(config ScanConfig) []ScanResult {
 					fmt.Printf("%s %s\n",
 						utils.Red("[✓] SQLi CONFIRMED (Time-based):"),
 						utils.Cyan(targetURL))
-					fmt.Printf("    → Database: %s, Avg Delay: %.2fs (baseline: %.2fs), Confirmations: %d/3\n",
+					fmt.Printf("    → Database: %s, Avg Delay: %.2fs (baseline max: %.2fs), Confirmations: %d/%d\n",
 						utils.Yellow(tbPayload.DBType),
 						avgDelay,
-						avgBaseline,
-						successCount)
+						maxBaseline,
+						successCount,
+						attempts)
 
 					processor.Add(ScanResult{
 						URL:          targetURL,
 						Vulnerable:   true,
 						Payload:      tbPayload.Payload,
 						ResponseTime: avgDelay,
-						Details:      fmt.Sprintf("Time-based SQLi - %s (%.2fs delay, %d/3 confirmed)", tbPayload.DBType, avgDelay, successCount),
+						Details:      fmt.Sprintf("Time-based SQLi - %s (%.2fs delay, %d/%d confirmed)", tbPayload.DBType, avgDelay, successCount, attempts),
 					})
 					break // Found time-based, no need to test more
 				}
@@ -284,8 +302,9 @@ func (s *SQLiScanner) Scan(config ScanConfig) []ScanResult {
 				falseSimilarity := utils.ContentSimilarity(falseResp.Body, baseline.Body)
 				similarityDiff := trueSimilarity - falseSimilarity
 
-				// Content check: True should be >90% similar to baseline, False should be <80%
-				contentCheckPassed := trueSimilarity > 0.90 && falseSimilarity < 0.80 && similarityDiff > 0.1
+				// Content check: True should be VERY similar to baseline (>95%), False should be DISTINCT (<70%)
+				// We also require a significant gap between the two (> 20%)
+				contentCheckPassed := trueSimilarity > 0.95 && falseSimilarity < 0.70 && similarityDiff > 0.20
 
 				// Need BOTH checks to pass for high confidence, or strong length diff
 				if (lengthCheckPassed && contentCheckPassed) || (lenDiff > baseLen*0.30 && lenDiff > 500) {

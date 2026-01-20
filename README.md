@@ -169,13 +169,13 @@ git clone https://github.com/Serdar715/bugx.git && cd bugx && go mod tidy && go 
 | Detection Type | Technique |
 |---------------|-----------|
 | **Error-based** | Database-specific error patterns |
-| **Time-based** | Triple verification (2/3 required) |
-| **Boolean-based** | Content similarity + length analysis |
+| **Time-based** | Quadruple verification (3/4 required) + Jitter Check |
+| **Boolean-based** | Content similarity (95% vs 70%) + 20% Gap Analysis |
 
 ```
 [✓] SQLi CONFIRMED (Time-based): http://target.com/search?id=1
     → MySQL detected (delay: 5.2s)
-    → Verified 3/3 attempts
+    → Verified 3/4 attempts
 ```
 
 ### 3️⃣ XSS Scanner
@@ -183,9 +183,9 @@ git clone https://github.com/Serdar715/bugx.git && cd bugx && go mod tidy && go 
 
 | Feature | Description |
 |---------|-------------|
+| **Smart Probing** | Analyzes allowed characters before attacking |
 | **Verification** | Headless Chrome with dialog interception |
-| **Canary Token** | Unique token must appear in alert message |
-| **Auto-Execute** | Only payloads requiring no user interaction |
+| **Zero FP** | "Zero False Positive" guarantee via probe-then-scan |
 
 ```
 [✓] XSS CONFIRMED: http://target.com/search?q=<payload>

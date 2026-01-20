@@ -268,14 +268,17 @@ func (s *LFIScanner) Scan(config ScanConfig) []ScanResult {
 					}
 
 					// Check that patterns are NOT in baseline (avoid false positives)
+					// STRICT: If the baseline response (non-existent file) ALREADY contains the pattern,
+					// it's a false positive (e.g. a tutorial page discussing /etc/passwd).
+					// We require 0 matches in the baseline for a valid finding.
 					baselineHasPatterns := 0
 					for _, pattern := range sig.Patterns {
 						if strings.Contains(baseline.Body, pattern) {
 							baselineHasPatterns++
 						}
 					}
-					// If baseline already has 2+ patterns, this is likely a false positive
-					if baselineHasPatterns >= 2 {
+
+					if baselineHasPatterns > 0 {
 						continue
 					}
 
