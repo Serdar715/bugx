@@ -484,8 +484,12 @@ func determineContext(body string, pos int) XSSContext {
 	after := strings.ToLower(body[pos:end])
 
 	// Check for script context
-	scriptOpenRe := regexp.MustCompile(`<script[^>]*>(?:[^<]|<(?!/script>))*$`)
-	if scriptOpenRe.MatchString(before) {
+	// Go regexp doesn't support negative lookahead (?!/script)
+	// Simplified check: If we see <script and NO </script> after it in the 'before' string
+	lastScriptOpen := strings.LastIndex(strings.ToLower(before), "<script")
+	lastScriptClose := strings.LastIndex(strings.ToLower(before), "</script>")
+
+	if lastScriptOpen != -1 && lastScriptOpen > lastScriptClose {
 		return ContextScript
 	}
 
