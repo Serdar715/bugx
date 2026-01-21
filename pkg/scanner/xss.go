@@ -179,45 +179,12 @@ var wafBypassPayloads = []string{
 	`<style>@keyframes x{}</style><xss style="animation-name:x" onanimationend="alert(1)"></xss>`,
 }
 
-// DOM XSS sources and sinks for detection
-var domXSSSources = []string{
-	"location.hash",
-	"location.search",
-	"location.href",
-	"document.URL",
-	"document.documentURI",
-	"document.referrer",
-	"window.name",
-	"document.cookie",
-	"localStorage",
-	"sessionStorage",
-}
-
-var domXSSSinks = []string{
-	"document.write",
-	"document.writeln",
-	"innerHTML",
-	"outerHTML",
-	"insertAdjacentHTML",
-	"eval(",
-	"setTimeout(",
-	"setInterval(",
-	"Function(",
-	"execScript(",
-	".src",
-	".href",
-	".action",
-	"location.href",
-	"location.replace",
-	"location.assign",
-}
-
 func (s *XSSScanner) Scan(config ScanConfig) []ScanResult {
 	var processor ResultProcessor
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, config.Threads)
 
-	fmt.Println(utils.Yellow("\n[i] Starting Advanced XSS Scan with Context Analysis..."))
+	fmt.Println(utils.Yellow("\n[i] Starting Reflected XSS Scan with Context Analysis..."))
 	fmt.Println(utils.White("[*] Using XSSStrike/Dalfox-style detection"))
 	fmt.Println(utils.White("[*] Context-aware payload selection enabled"))
 	fmt.Println(utils.White("[*] Browser-based JavaScript execution verification\n"))
@@ -273,15 +240,7 @@ func (s *XSSScanner) Scan(config ScanConfig) []ScanResult {
 			continue
 		}
 
-		// Step 2: Detect potential DOM XSS
-		domXSSFound := detectDOMXSSPatterns(baseResp.Body)
-		if len(domXSSFound) > 0 {
-			// Show full URL for potential findings so user can investigate
-			fmt.Printf("%s Potential DOM XSS patterns found in: %s\n", utils.Yellow("[!]"), baseURL)
-			for _, pattern := range domXSSFound {
-				fmt.Printf("    %s %s\n", utils.Cyan("→"), pattern)
-			}
-		}
+		// Step 2: Reflected XSS detection only
 
 		// Step 3: Extract all parameters from URL
 		params := extractAllParams(baseURL)
@@ -632,26 +591,6 @@ func injectPayload(rawURL, paramName, payload string) string {
 	return parsedURL.String()
 }
 
-// detectDOMXSSPatterns scans response body for potential DOM XSS patterns
-func detectDOMXSSPatterns(body string) []string {
-	var found []string
-
-	// Check for dangerous source -> sink combinations
-	for _, source := range domXSSSources {
-		if strings.Contains(body, source) {
-			for _, sink := range domXSSSinks {
-				if strings.Contains(body, sink) {
-					pattern := fmt.Sprintf("Potential DOM XSS: %s → %s", source, sink)
-					found = append(found, pattern)
-					break
-				}
-			}
-		}
-	}
-
-	return found
-}
-
 // verifyXSSWithDialogInterception uses Chrome's dialog event to confirm XSS
 // STRICT MODE: Only confirms if our unique canary is in the dialog message
 func verifyXSSWithDialogInterception(allocCtx context.Context, targetURL, canary string, timeout int) (bool, string) {
@@ -736,8 +675,8 @@ func truncateURL(url string, maxLen int) string {
 
 func printXSSSummary(results []ScanResult) {
 	fmt.Println(utils.Yellow("\n--------------------------------------------------"))
-	fmt.Println(utils.White("XSS Scan Summary (Context-Aware Analysis):"))
-	fmt.Printf("  %s Confirmed XSS (JavaScript Executed): %d\n", utils.Red("●"), len(results))
+	fmt.Println(utils.White("Reflected XSS Scan Summary:"))
+	fmt.Printf("  %s Confirmed Reflected XSS (JavaScript Executed): %d\n", utils.Red("●"), len(results))
 	fmt.Println(utils.Yellow("--------------------------------------------------"))
 
 	if len(results) > 0 {
